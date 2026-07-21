@@ -120,7 +120,8 @@
     display: block;
     min-height: 100vh;
     height: auto;
-    overflow: auto;
+    overflow-x: clip;
+    overflow-y: auto;
     padding: 0;
     background: #000;
     color: #EEF1F5;

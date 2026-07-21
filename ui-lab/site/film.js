@@ -52,8 +52,9 @@
   const PROMPT_AUDIO_SCROLL_BRIDGE_MS = 820;
   const PROMPT_AUDIO_VELOCITY_EASE_MS = 92;
   const PROMPT_AUDIO_RATE_EASE_MS = 185;
-  const FILM_SCROLL_STOP_AUTOPLAY_MS = 120;
-  const FILM_AUTOPLAY_VELOCITY_TWEEN_MS = 200;
+  const FILM_SCROLL_STOP_AUTOPLAY_MS = 48;
+  const FILM_AUTOPLAY_VELOCITY_TWEEN_MS = 500;
+  const FILM_AUTOPLAY_STOP_EASE_MS = 500;
   const FILM_EARLY_START_VIEWPORT_RATIO = 0.42;
   const FILM_EARLY_START_MAX_PX = 420;
   const STAR_PARALLAX_LOOP_HEIGHT = 1120;
@@ -156,8 +157,6 @@
   const CAMERA_VERTICAL_BIAS = 110;
   const CAMERA_WIDE_VERTICAL_BIAS_PER_ASPECT = 260;
   const CAMERA_WIDE_MAX_VERTICAL_BIAS = 320;
-  const TIMELINE_REVEAL_TIME = PROMPT_TYPE_START
-    + (PROMPT_TYPE_END - PROMPT_TYPE_START) * 0.5;
   const COMPILER_FAIL_IMPRINT_START = 46.0;
   const COMPILER_FAIL_IMPRINT_END = 52.55;
   const COMPILER_FAIL_IMPRINT_PUNCH_SECONDS = 0.15;
@@ -459,11 +458,12 @@
     let hooks = {};
     const baseTransforms = new WeakMap();
     let scrubber = null;
-    let scrubRange = null;
-    let scrubOutput = null;
-    let scrubSceneTitle = null;
-    let scrubPlay = null;
     let scrubMarks = [];
+    let syncChapterNavigation = () => {};
+    let jumpToFilmWaypoint = (time) => {
+      stopClock(false);
+      setTime(time);
+    };
     let cameraEditor = null;
     let cameraEditorTime = null;
     let cameraEditorMarkers = null;
@@ -486,6 +486,9 @@
     let promptAudioScrollIntentAt = 0;
     let filmPlaybackRate = 1;
     let filmPlaybackStartRate = 1;
+    let filmPlaybackStopAnchorNow = 0;
+    let filmPlaybackStopAnchorTime = 0;
+    let filmPlaybackStopStartRate = 1;
     let syncFilmAutoplayScrollPosition = () => {};
     root.dataset.filmHasUserScrolled = "false";
 
@@ -2494,24 +2497,11 @@
       hooks.scrollCue.classList.toggle("is-visible", visible);
     }
 
-    function updateScrubber(time, activeScene) {
+    function updateChapterNavigation(time) {
       const activeWaypoint = waypointAt(time);
-      if (scrubber) scrubber.classList.toggle("is-introduced", time >= TIMELINE_REVEAL_TIME);
-      if (scrubRange && document.activeElement !== scrubRange) scrubRange.value = time.toFixed(2);
-      if (scrubOutput) {
-        scrubOutput.textContent = `${formatTimecode(time).slice(0, 5)} · ${activeWaypoint ? activeWaypoint.title : activeScene.title}`;
-      }
-      if (scrubSceneTitle) {
-        scrubSceneTitle.textContent = !activeScene
-          ? ""
-          : activeWaypoint && activeWaypoint.title !== activeScene.title
-            ? activeWaypoint.title
-            : activeScene.title;
-      }
-      if (scrubPlay) {
-        scrubPlay.textContent = playing ? "Pause" : "Play";
-        scrubPlay.setAttribute("aria-pressed", String(playing));
-      }
+      if (scrubber) scrubber.dataset.filmActiveChapter = activeWaypoint
+        ? String(activeWaypoint.number)
+        : "0";
       scrubMarks.forEach((button, index) => {
         const waypoint = TIMELINE_WAYPOINTS[index];
         const active = Boolean(activeWaypoint && waypoint.number === activeWaypoint.number);
@@ -2561,30 +2551,59 @@
       renderSceneDetails(currentTime);
       renderHud(currentTime);
       renderScrollCue(currentTime);
-      updateScrubber(currentTime, activeScene);
+      updateChapterNavigation(currentTime);
       updateCameraEditor(currentTime);
       return currentTime;
     }
 
     function frame(now) {
       if (!playing) return;
-      const elapsed = (now - anchorNow) / 1000;
-      const tweenDuration = FILM_AUTOPLAY_VELOCITY_TWEEN_MS / 1000;
-      const tweenElapsed = Math.min(elapsed, tweenDuration);
-      const tweenProgress = tweenDuration > 0 ? tweenElapsed / tweenDuration : 1;
-      const easedProgress = smoothstep(tweenProgress);
-      const easedProgressIntegral = tweenProgress ** 3 - 0.5 * tweenProgress ** 4;
-      const tweenAdvance = tweenDuration * (
-        filmPlaybackStartRate * tweenProgress
-        + (1 - filmPlaybackStartRate) * easedProgressIntegral
-      );
-      const timeAdvance = tweenAdvance + Math.max(0, elapsed - tweenDuration);
-      filmPlaybackRate = lerp(filmPlaybackStartRate, 1, easedProgress);
-      currentTime = Math.min(DURATION, anchorTime + timeAdvance);
+      if (filmPlaybackStopAnchorNow) {
+        const stopDuration = FILM_AUTOPLAY_STOP_EASE_MS / 1000;
+        const stopProgress = stopDuration > 0
+          ? clamp((now - filmPlaybackStopAnchorNow) / 1000 / stopDuration, 0, 1)
+          : 1;
+        const progressSquared = stopProgress * stopProgress;
+        const progressCubed = progressSquared * stopProgress;
+        const remaining = DURATION - filmPlaybackStopAnchorTime;
+        const startTangent = filmPlaybackStopStartRate * stopDuration;
+        const advance = (progressCubed - 2 * progressSquared + stopProgress) * startTangent
+          + (-2 * progressCubed + 3 * progressSquared) * remaining;
+        const derivative = (3 * progressSquared - 4 * stopProgress + 1) * startTangent
+          + (-6 * progressSquared + 6 * stopProgress) * remaining;
+        filmPlaybackRate = stopDuration > 0 ? Math.max(0, derivative / stopDuration) : 0;
+        currentTime = filmPlaybackStopAnchorTime + advance;
+      } else {
+        const elapsed = (now - anchorNow) / 1000;
+        const tweenDuration = FILM_AUTOPLAY_VELOCITY_TWEEN_MS / 1000;
+        const tweenElapsed = Math.min(elapsed, tweenDuration);
+        const tweenProgress = tweenDuration > 0 ? tweenElapsed / tweenDuration : 1;
+        const easedProgress = smoothstep(tweenProgress);
+        const easedProgressIntegral = tweenProgress ** 3 - 0.5 * tweenProgress ** 4;
+        const tweenAdvance = tweenDuration * (
+          filmPlaybackStartRate * tweenProgress
+          + (1 - filmPlaybackStartRate) * easedProgressIntegral
+        );
+        const timeAdvance = tweenAdvance + Math.max(0, elapsed - tweenDuration);
+        filmPlaybackRate = lerp(filmPlaybackStartRate, 1, easedProgress);
+        currentTime = Math.min(DURATION, anchorTime + timeAdvance);
+
+        const stopDuration = FILM_AUTOPLAY_STOP_EASE_MS / 1000;
+        const stopDistance = Math.max(0.001, filmPlaybackRate * stopDuration * 0.5);
+        if (currentTime >= DURATION - stopDistance) {
+          filmPlaybackStopAnchorTime = Math.max(anchorTime, DURATION - stopDistance);
+          filmPlaybackStopAnchorNow = now;
+          filmPlaybackStopStartRate = filmPlaybackRate;
+          currentTime = filmPlaybackStopAnchorTime;
+        }
+      }
       root.style.setProperty("--film-playback-rate", filmPlaybackRate.toFixed(4));
       render(currentTime);
       syncFilmAutoplayScrollPosition(currentTime);
-      if (currentTime >= DURATION) {
+      if (currentTime >= DURATION - 0.0001) {
+        currentTime = DURATION;
+        render(currentTime);
+        syncFilmAutoplayScrollPosition(currentTime);
         stopClock(false);
         return;
       }
@@ -2595,6 +2614,8 @@
       currentTime = parseTime(nextTime, currentTime);
       anchorTime = currentTime >= DURATION && playing ? 0 : currentTime;
       anchorNow = performance.now();
+      filmPlaybackStopAnchorNow = 0;
+      filmPlaybackStopAnchorTime = 0;
       render(currentTime);
       return currentTime;
     }
@@ -2603,9 +2624,13 @@
       if (animationFrame) cancelAnimationFrame(animationFrame);
       animationFrame = 0;
       playing = false;
+      filmPlaybackStopAnchorNow = 0;
+      filmPlaybackStopAnchorTime = 0;
+      filmPlaybackRate = 0;
+      root.style.setProperty("--film-playback-rate", "0");
       if (!preserveIntent) wantsPlayback = false;
       root.dataset.filmPlaying = "false";
-      updateScrubber(currentTime, sceneAt(currentTime));
+      updateChapterNavigation(currentTime);
       return currentTime;
     }
 
@@ -2620,17 +2645,19 @@
       if (currentTime >= DURATION) currentTime = 0;
       const parsedStartRate = Number(startRate);
       filmPlaybackStartRate = clamp(
-        Number.isFinite(parsedStartRate) ? Math.abs(parsedStartRate) : 1,
-        0,
+        Number.isFinite(parsedStartRate) ? parsedStartRate : 1,
+        -PROMPT_AUDIO_MAX_RATE,
         PROMPT_AUDIO_MAX_RATE,
       );
       filmPlaybackRate = filmPlaybackStartRate;
+      filmPlaybackStopAnchorNow = 0;
+      filmPlaybackStopAnchorTime = 0;
       anchorTime = currentTime;
       anchorNow = performance.now();
       playing = true;
       root.dataset.filmPlaying = "true";
       animationFrame = requestAnimationFrame(frame);
-      updateScrubber(currentTime, sceneAt(currentTime));
+      updateChapterNavigation(currentTime);
       return true;
     }
 
@@ -2818,112 +2845,37 @@
       updateCameraEditor(currentTime);
     }
 
-    // ================= SECTION: Scrubber/transport UI =================
-    function createScrubber() {
-      const controls = document.createElement("div");
-      controls.className = "film-scrubber";
-      controls.classList.toggle("is-introduced", currentTime >= TIMELINE_REVEAL_TIME);
+    // ================= SECTION: Scroll-aligned chapter navigation =================
+    function createChapterNavigation() {
+      const controls = document.createElement("nav");
+      controls.className = "film-chapter-nav";
       const timelineRequested = params.get("timeline") === "1" || params.get("film") === "scrub";
       controls.hidden = deterministic && !timelineRequested;
       root.dataset.filmTimeline = String(!controls.hidden);
-      controls.setAttribute("role", "group");
-      controls.setAttribute("aria-label", "Film timeline and scene states; normal page scrolling controls the film");
-
-      const playButton = document.createElement("button");
-      playButton.className = "film-scrubber__play";
-      playButton.type = "button";
-      playButton.textContent = "Play";
-      controls.appendChild(playButton);
-
-      const track = document.createElement("div");
-      track.className = "film-scrubber__track";
-
-      const range = document.createElement("input");
-      range.className = "film-scrubber__range";
-      range.type = "range";
-      range.min = "0";
-      range.max = String(DURATION);
-      range.step = "0.01";
-      range.value = currentTime.toFixed(2);
-      range.setAttribute("aria-label", "Preview film time");
-      track.appendChild(range);
-
-      const marks = document.createElement("div");
-      marks.className = "film-scrubber__marks";
+      controls.setAttribute("aria-label", "Film chapters");
+      controls.setAttribute("aria-hidden", "true");
+      controls.inert = true;
       root.dataset.filmAutoPlayback = "false";
 
-      TIMELINE_WAYPOINTS.forEach((waypoint, index) => {
+      TIMELINE_WAYPOINTS.forEach((waypoint) => {
         const button = document.createElement("button");
         button.type = "button";
-        button.textContent = SCENES[index].id.slice(0, 3).toUpperCase();
-        button.title = `${waypoint.at}s · ${waypoint.title}`;
-        button.setAttribute("aria-label", `Waypoint ${waypoint.number}: ${waypoint.title}, ${waypoint.at} seconds`);
+        button.className = "film-chapter-nav__marker";
+        button.textContent = String(waypoint.number).padStart(2, "0");
+        button.setAttribute("aria-label", `Chapter ${waypoint.number}: ${waypoint.title}`);
+        button.dataset.filmChapterDescription = waypoint.title;
         button.dataset.filmJump = String(waypoint.at);
-        button.style.setProperty("--film-mark-position", `${(waypoint.at / DURATION) * 100}%`);
+        button.style.setProperty("--film-chapter-y", `${(waypoint.at / DURATION) * 100}vh`);
+        button.style.setProperty("--film-chapter-proximity", "0");
         button.addEventListener("click", () => {
-          stopClock(false);
-          setTime(waypoint.at);
+          jumpToFilmWaypoint(waypoint.at);
         });
-        marks.appendChild(button);
-      });
-      track.appendChild(marks);
-      controls.appendChild(track);
-
-      const output = document.createElement("output");
-      output.className = "film-scrubber__time";
-      controls.appendChild(output);
-
-      const sceneTitle = document.createElement("output");
-      sceneTitle.id = "film-scene-title";
-      sceneTitle.className = "film-scrubber__scene-title";
-      controls.appendChild(sceneTitle);
-
-      playButton.addEventListener("click", () => {
-        if (playing) {
-          root.dataset.filmAutoPlayback = "false";
-          pause();
-        }
-        else {
-          root.dataset.filmAutoPlayback = "true";
-          unlockPromptAudio();
-          play();
-        }
-      });
-      let scrubbing = false;
-      const beginScrub = () => {
-        scrubbing = true;
-        stopClock(false);
-        controls.classList.add("is-scrubbing");
-      };
-      const updateFromRange = () => {
-        if (!scrubbing) beginScrub();
-        setTime(range.value);
-      };
-      const finishScrub = () => {
-        if (!scrubbing) return;
-        scrubbing = false;
-        controls.classList.remove("is-scrubbing");
-        setTime(range.value);
-      };
-      range.addEventListener("pointerdown", beginScrub);
-      range.addEventListener("input", updateFromRange);
-      range.addEventListener("pointerup", finishScrub);
-      range.addEventListener("pointercancel", finishScrub);
-      range.addEventListener("change", finishScrub);
-      range.addEventListener("keydown", (event) => {
-        if (event.key === "Home" || event.key === "End" || event.key.startsWith("Arrow")) beginScrub();
-      });
-      range.addEventListener("keyup", (event) => {
-        if (event.key === "Home" || event.key === "End" || event.key.startsWith("Arrow")) finishScrub();
+        controls.appendChild(button);
       });
 
-      root.insertAdjacentElement("afterend", controls);
+      document.body.appendChild(controls);
       scrubber = controls;
-      scrubRange = range;
-      scrubOutput = output;
-      scrubSceneTitle = sceneTitle;
-      scrubPlay = playButton;
-      scrubMarks = Array.from(marks.querySelectorAll("button"));
+      scrubMarks = Array.from(controls.querySelectorAll("button"));
     }
 
     // ================= SECTION: Natural scroll timeline =================
@@ -2964,6 +2916,59 @@
         };
       };
 
+      const scrollYForFilmTime = (time, state = scrollState()) => {
+        const sectionTop = window.scrollY + state.bounds.top;
+        const rawTargetScrollY = sectionTop - state.startOffset
+          + (clamp(time, 0, DURATION) / DURATION) * state.travel;
+        const maxScrollY = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+        return clamp(rawTargetScrollY, 0, maxScrollY);
+      };
+
+      syncChapterNavigation = (state = scrollState()) => {
+        if (!scrubber || scrubber.hidden) return;
+        const visible = state.active && document.body.dataset.shellMode === "website";
+        scrubber.classList.toggle("is-visible", visible);
+        scrubber.setAttribute("aria-hidden", String(!visible));
+        scrubber.inert = !visible;
+        if (!visible) return;
+        const viewportHeight = Math.max(1, window.innerHeight);
+        const documentHeight = Math.max(viewportHeight, document.documentElement.scrollHeight);
+        const maxScrollY = Math.max(1, documentHeight - viewportHeight);
+        const thumbHeight = clamp(
+          viewportHeight * (viewportHeight / documentHeight),
+          28,
+          viewportHeight,
+        );
+        const thumbTravel = Math.max(0, viewportHeight - thumbHeight);
+        const thumbCenterForScrollY = (scrollY) => thumbHeight / 2
+          + clamp(scrollY / maxScrollY, 0, 1) * thumbTravel;
+        const currentThumbCenter = thumbCenterForScrollY(window.scrollY);
+        const proximityRange = Math.max(78, viewportHeight * 0.14);
+
+        scrubMarks.forEach((button, index) => {
+          const waypoint = TIMELINE_WAYPOINTS[index];
+          const markerCenter = thumbCenterForScrollY(scrollYForFilmTime(waypoint.at, state));
+          const proximity = 1 - clamp(
+            Math.abs(markerCenter - currentThumbCenter) / proximityRange,
+            0,
+            1,
+          );
+          button.style.setProperty("--film-chapter-y", `${markerCenter.toFixed(2)}px`);
+          button.style.setProperty("--film-chapter-proximity", proximity.toFixed(4));
+        });
+      };
+
+      jumpToFilmWaypoint = (time) => {
+        clearIdlePlayback();
+        autoplayScrollTargetY = null;
+        root.dataset.filmAutoPlayback = "false";
+        if (playing) stopClock(false);
+        const targetScrollY = scrollYForFilmTime(time);
+        window.scrollTo({ top: targetScrollY, left: window.scrollX, behavior: "auto" });
+        setTime(time);
+        scheduleScrollSync();
+      };
+
       const syncStickyIntroPosition = (state) => {
         if (!filmStoryInner) return;
         const top = state && state.bounds ? state.bounds.top : 0;
@@ -2993,11 +2998,7 @@
           || document.body.dataset.shellMode !== "website") return;
         const state = scrollState();
         if (!state.active) return;
-        const sectionTop = window.scrollY + state.bounds.top;
-        const rawTargetScrollY = sectionTop - state.startOffset
-          + (time / DURATION) * state.travel;
-        const maxScrollY = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
-        const targetScrollY = clamp(rawTargetScrollY, 0, maxScrollY);
+        const targetScrollY = scrollYForFilmTime(time, state);
         if (Math.abs(window.scrollY - targetScrollY) > 0.2) {
           window.scrollTo({ top: targetScrollY, left: window.scrollX, behavior: "auto" });
           // Store the browser's actual, potentially pixel-rounded position.
@@ -3010,22 +3011,35 @@
         idlePlaybackTimer = 0;
       };
 
-      const armIdlePlayback = (state) => {
+      const startIdlePlayback = (state) => {
         clearIdlePlayback();
         if (!state.active || currentTime >= DURATION || playing
           || scrollbarDragging
           || userScrollActive
           || deterministic || reducedMotion || document.hidden
           || document.body.dataset.shellMode !== "website") return;
+        root.dataset.filmAutoPlayback = "true";
+        // Preserve both speed and direction. A backwards manual gesture can
+        // therefore decelerate through zero before autoplay continues forward,
+        // instead of snapping immediately into the opposite direction.
+        play(lastNaturalFilmVelocity);
+      };
+
+      const armIdlePlayback = (state) => {
+        clearIdlePlayback();
+        if (!state.active || currentTime >= DURATION || playing
+          || scrollbarDragging
+          || deterministic || reducedMotion || document.hidden
+          || document.body.dataset.shellMode !== "website") return;
         idlePlaybackTimer = window.setTimeout(() => {
           idlePlaybackTimer = 0;
+          // No new native scroll packet arrived during the bridge window.
+          // Release manual ownership now, before the browser's later scrollend,
+          // so motion hands off continuously instead of visibly pausing first.
+          userScrollActive = false;
+          root.dataset.filmUserScrollActive = "false";
           const latestState = scrollState();
-          if (!latestState.active || playing || currentTime >= DURATION
-            || scrollbarDragging
-            || userScrollActive
-            || document.hidden || document.body.dataset.shellMode !== "website") return;
-          root.dataset.filmAutoPlayback = "true";
-          play(lastNaturalFilmVelocity);
+          startIdlePlayback(latestState);
         }, FILM_SCROLL_STOP_AUTOPLAY_MS);
       };
 
@@ -3042,6 +3056,7 @@
 
         const state = scrollState();
         syncStickyIntroPosition(state);
+        syncChapterNavigation(state);
         const targetTime = state.progress * DURATION;
         const now = performance.now();
         const elapsedSeconds = clamp((now - lastScrollAt) / 1000, 0.016, 0.25);
@@ -3062,12 +3077,12 @@
         }
         promptAudioDirection = timeDelta < 0 ? -1 : 1;
         lastNaturalFilmVelocity = clamp(
-          Math.abs(timeDelta) / elapsedSeconds,
-          0,
+          timeDelta / elapsedSeconds,
+          -PROMPT_AUDIO_MAX_RATE,
           PROMPT_AUDIO_MAX_RATE,
         );
         promptAudioScrollRate = clamp(
-          lastNaturalFilmVelocity,
+          Math.abs(lastNaturalFilmVelocity),
           PROMPT_AUDIO_MIN_RATE,
           PROMPT_AUDIO_MAX_RATE,
         );
@@ -3115,6 +3130,9 @@
         root.dataset.filmUserScrollActive = "false";
         lastScrollAt = performance.now();
         scheduleScrollSync();
+        // Native scrollend is a reliable hand-off point, so resume on the next
+        // animation frame instead of inserting the fallback packet-gap delay.
+        requestAnimationFrame(() => startIdlePlayback(scrollState()));
       };
 
       const scheduleResizeSync = () => {
@@ -3133,7 +3151,7 @@
         unlockPromptAudio();
         const target = event && event.target;
         const transportInteraction = target instanceof Element
-          && target.closest("button, input, a, .film-scrubber, .film-camera-editor");
+          && target.closest("button, input, a, .film-chapter-nav, .film-camera-editor");
         if (!transportInteraction && playing && root.dataset.filmAutoPlayback === "true") {
           root.dataset.filmAutoPlayback = "false";
           stopClock(false);
@@ -3175,6 +3193,7 @@
         window.addEventListener("scrollend", handlePageScrollEnd, { passive: true });
       }
       window.addEventListener("resize", scheduleResizeSync, { passive: true });
+      window.addEventListener("load", scheduleResizeSync, { once: true });
       window.addEventListener("wheel", noteUserIntent, { passive: true });
       window.addEventListener("touchstart", noteUserIntent, { passive: true });
       window.addEventListener("pointerdown", beginPointerIntent, { passive: true });
@@ -3197,7 +3216,7 @@
     if (hooks.scrollCue && hooks.scrollCue.parentElement !== scrollCueAnchor) {
       scrollCueAnchor.appendChild(hooks.scrollCue);
     }
-    createScrubber();
+    createChapterNavigation();
     createNaturalScrollController();
     createCameraEditor();
 
@@ -3222,6 +3241,7 @@
       scene: { enumerable: true, get: () => sceneAt(currentTime) },
       playing: { enumerable: true, get: () => playing },
       scrubber: { enumerable: true, get: () => scrubber },
+      chapterNavigation: { enumerable: true, get: () => scrubber },
     });
     window.__RAIOS_FILM__ = api;
 
