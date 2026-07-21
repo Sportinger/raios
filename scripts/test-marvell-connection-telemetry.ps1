@@ -294,9 +294,16 @@ function Test-ConnectionTimeoutFingerprint([string]$DriverText, [string]$TraceTe
     $job = Slice-Between $DriverText "struct ConnectionJob" "/// Mutually exclusive credential sources"
     $arm = Slice-Between $DriverText "fn arm_connection_command" "pub fn poll_connection"
     $poll = Slice-Between $DriverText "pub fn poll_connection" "fn next_connection_phase"
-    $timeout = Slice-Between $poll "if elapsed_ms(job.phase_started_tsc) >= CONNECT_CMD_TIMEOUT_MS" "if !job.waiting"
+    $timeoutAll = Slice-Between $poll "if elapsed_ms(job.phase_started_tsc) >= CONNECT_CMD_TIMEOUT_MS" "if !job.waiting"
+    $associateTimeoutAt = $timeoutAll.IndexOf("let associate_doorbell_ack", [StringComparison]::Ordinal)
+    Require ($associateTimeoutAt -ge 0) "missing Associate timeout fixture"
+    $timeout = $timeoutAll.Substring($associateTimeoutAt)
     $portTimeout = Slice-Between $poll "if job.phase == ConnectionStage::WaitPortRelease" "if elapsed_ms(job.phase_started_tsc) >= CONNECT_CMD_TIMEOUT_MS"
-    $completion = Slice-Between $poll "if status == u32::MAX" "if !terminal_quiesce_and_cleanup_while_gated"
+    $waitingAt = $poll.IndexOf("if !job.waiting", [StringComparison]::Ordinal)
+    $pollStatusAt = $poll.IndexOf("let status = read_reg(mmio, PCIE_HOST_INT_STATUS);", $waitingAt, [StringComparison]::Ordinal)
+    $genericCleanupAt = $poll.IndexOf("if !terminal_quiesce_and_cleanup_while_gated", $pollStatusAt, [StringComparison]::Ordinal)
+    Require (($pollStatusAt -gt $waitingAt) -and ($genericCleanupAt -gt $pollStatusAt)) "missing connection completion fixture"
+    $completion = $poll.Substring($pollStatusAt, $genericCleanupAt - $pollStatusAt)
     $queue = Slice-Between $DriverText "fn queue_connection_timeout_trace" "#[repr(C, packed)]"
     $finish = Slice-Between $DriverText "fn finish_connection_locked" "fn quarantine_connection_job"
     $quarantine = Slice-Between $DriverText "fn quarantine_connection_job" "fn clear_connection_secret_dma"
@@ -316,7 +323,7 @@ function Test-ConnectionTimeoutFingerprint([string]$DriverText, [string]$TraceTe
     $requestIsFixedAndRedacted = [regex]::IsMatch($request, 'read_fixed_connection_header\(connect_cmd_ptr\(\)\).*interface_len as usize == command_len.*interface_type == marvell_wifi_cmd::MWIFIEX_TYPE_CMD.*command == expected_command.*host_command_size as usize == expected_host_size.*sequence == connection_phase_seq.*result == 0', [Text.RegularExpressions.RegexOptions]::Singleline) -and
         -not [regex]::IsMatch($request, 'target\.|ssid|bssid|passphrase|pmk|security_ie|secret_source|MWIFIEX_UPLD_SIZE', [Text.RegularExpressions.RegexOptions]::IgnoreCase)
 
-    $statusAt = $timeout.IndexOf('let status = read_reg(mmio, PCIE_HOST_INT_STATUS)', [StringComparison]::Ordinal)
+    $statusAt = $timeoutAll.IndexOf('let status = read_reg(mmio, PCIE_HOST_INT_STATUS)', [StringComparison]::Ordinal)
     $quarantineAt = $timeout.IndexOf('quarantine_connection_job(&job)', [StringComparison]::Ordinal)
     $responseAt = $timeout.IndexOf('connection_timeout_response_class_after_verified_cleanup(&job)', [StringComparison]::Ordinal)
     $specializedQueueAt = $timeout.IndexOf('queue_connection_timeout_trace', [StringComparison]::Ordinal)
@@ -358,9 +365,16 @@ function Test-ConnectionTimeoutFingerprint([string]$DriverText, [string]$TraceTe
 function Test-AssociateDoorbellAck([string]$DriverText) {
     $layout = Slice-Between $DriverText "// Stable, secret-free Associate doorbell acknowledgement values" "fn queue_connection_timeout_trace"
     $poll = Slice-Between $DriverText "pub fn poll_connection" "fn next_connection_phase"
-    $timeout = Slice-Between $poll "if elapsed_ms(job.phase_started_tsc) >= CONNECT_CMD_TIMEOUT_MS" "if !job.waiting"
+    $timeoutAll = Slice-Between $poll "if elapsed_ms(job.phase_started_tsc) >= CONNECT_CMD_TIMEOUT_MS" "if !job.waiting"
+    $associateTimeoutAt = $timeoutAll.IndexOf("let associate_doorbell_ack", [StringComparison]::Ordinal)
+    Require ($associateTimeoutAt -ge 0) "missing Associate timeout fixture"
+    $timeout = $timeoutAll.Substring($associateTimeoutAt)
     $portTimeout = Slice-Between $poll "if job.phase == ConnectionStage::WaitPortRelease" "if elapsed_ms(job.phase_started_tsc) >= CONNECT_CMD_TIMEOUT_MS"
-    $completion = Slice-Between $poll "if status == u32::MAX" "if !terminal_quiesce_and_cleanup_while_gated"
+    $waitingAt = $poll.IndexOf("if !job.waiting", [StringComparison]::Ordinal)
+    $pollStatusAt = $poll.IndexOf("let status = read_reg(mmio, PCIE_HOST_INT_STATUS);", $waitingAt, [StringComparison]::Ordinal)
+    $genericCleanupAt = $poll.IndexOf("if !terminal_quiesce_and_cleanup_while_gated", $pollStatusAt, [StringComparison]::Ordinal)
+    Require (($pollStatusAt -gt $waitingAt) -and ($genericCleanupAt -gt $pollStatusAt)) "missing connection completion fixture"
+    $completion = $poll.Substring($pollStatusAt, $genericCleanupAt - $pollStatusAt)
     $queue = Slice-Between $DriverText "fn queue_connection_timeout_trace" "#[repr(C, packed)]"
 
     $stableValuesAndMapping = [regex]::IsMatch(
@@ -420,8 +434,97 @@ function Test-AssociateDoorbellAck([string]$DriverText) {
         $classifierHasOneRuntimeUse -and $secretFree
 }
 
+function Test-H25PostPmkHwSpecCanary([string]$DriverText) {
+    $layout = Slice-Between $DriverText "// Stable, secret-free H25 post-PMK GET_HW_SPEC canary result" "// Stable, secret-free Associate doorbell acknowledgement values"
+    $start = Slice-Between $DriverText "fn start_association_inner" "fn same_connection_target"
+    $prepare = Slice-Between $DriverText "fn prepare_connection_dma" "/// Captures one secret-free request predicate"
+    $canaryBuild = Slice-Between $prepare "ConnectionStage::PostPmkHwSpecCanary" "ConnectionStage::Associate"
+    $phase = Slice-Between $DriverText "fn connection_phase_seq" "fn connection_phase_command"
+    $command = Slice-Between $DriverText "fn connection_phase_command" "fn connection_response_error_class"
+    $poll = Slice-Between $DriverText "pub fn poll_connection" "fn next_connection_phase"
+    $timeout = Slice-Between $poll "if job.phase == ConnectionStage::PostPmkHwSpecCanary" "let associate_doorbell_ack"
+    $doneAt = $poll.IndexOf('host_cmd_done_is_current', [StringComparison]::Ordinal)
+    $staleCanaryAt = $poll.IndexOf('if job.phase == ConnectionStage::PostPmkHwSpecCanary', $doneAt, [StringComparison]::Ordinal)
+    $canaryAt = $poll.IndexOf('if job.phase == ConnectionStage::PostPmkHwSpecCanary', $staleCanaryAt + 1, [StringComparison]::Ordinal)
+    $genericCleanupAt = $poll.IndexOf('if !terminal_quiesce_and_cleanup_while_gated', $canaryAt, [StringComparison]::Ordinal)
+    Require (($doneAt -ge 0) -and ($staleCanaryAt -gt $doneAt) -and ($canaryAt -gt $staleCanaryAt) -and ($genericCleanupAt -gt $canaryAt)) "H25 canary completion fixture is not ordered after current CMD_DONE"
+    $currentEpochGate = $poll.Substring($doneAt, $canaryAt - $doneAt)
+    $completion = $poll.Substring($canaryAt, $genericCleanupAt - $canaryAt)
+    $parser = Slice-Between $DriverText "fn parse_post_pmk_hw_spec_canary_response" "fn parse_connection_dma_response"
+    $next = Slice-Between $DriverText "fn next_connection_phase" "fn finish_connection_locked"
+    $finish = Slice-Between $DriverText "fn finish_connection_locked" "fn quarantine_connection_job"
+    $quarantine = Slice-Between $DriverText "fn quarantine_connection_job" "fn clear_connection_secret_dma"
+    $queue = Slice-Between $DriverText "fn queue_post_pmk_canary_result" "// Stable, secret-free Associate doorbell acknowledgement values"
+
+    $stableResult = [regex]::IsMatch($layout, 'POST_PMK_CANARY_RESULT_TAG:\s*u32\s*=\s*0xD225_0000.*#\[repr\(u8\)\].*ExpectedCompletion\s*=\s*0.*FirmwareResult\s*=\s*1.*MalformedOrWrongCompletion\s*=\s*2.*TimeoutDoorbellCleared\s*=\s*3.*TimeoutDoorbellStillSet\s*=\s*4.*MmioOrDoorbellUnavailable\s*=\s*5.*StaleHighCompletion\s*=\s*6.*HostPublicationFailure\s*=\s*7.*POST_PMK_CANARY_RESULT_TAG \| outcome as u32', [Text.RegularExpressions.RegexOptions]::Singleline)
+    $oneSecretFreeRecord = [regex]::IsMatch($queue, 'fn queue_post_pmk_canary_result\(outcome: PostPmkCanaryOutcome\)\s*\{\s*queue_fixed_hw_failure_trace\(\s*HwFailurePhase::HardwareSpec,\s*HwFailureStatus::NetworkStateNotGranted,\s*HwFailureRegister::MarvellCommandResponseStatus,\s*post_pmk_canary_trace_value\(outcome\),\s*\);\s*\}', [Text.RegularExpressions.RegexOptions]::Singleline) -and
+        -not [regex]::IsMatch($queue, 'connect_(?:cmd|rsp)_ptr|job\.|\bssid\b|\bbssid\b|\bpassphrase\b|secret_source|security_ie|header\.|dma_phys', [Text.RegularExpressions.RegexOptions]::IgnoreCase)
+
+    $profilePmkCanaryOnly = [regex]::IsMatch($next, 'SupplicantProfile\s*=>\s*ConnectionStage::SupplicantPmk.*SupplicantPmk\s*=>\s*ConnectionStage::PostPmkHwSpecCanary.*PostPmkHwSpecCanary\s*=>\s*ConnectionStage::Failed', [Text.RegularExpressions.RegexOptions]::Singleline) -and
+        [regex]::IsMatch($canaryBuild, 'build_get_hw_spec\(seq, out\)') -and
+        -not [regex]::IsMatch($canaryBuild, 'build_associate|ASSOCIATE_CMD') -and
+        [regex]::IsMatch($phase, 'PostPmkHwSpecCanary\s*=>\s*2') -and
+        [regex]::IsMatch($command, 'PostPmkHwSpecCanary\s*=>\s*Some\(marvell_wifi_cmd::GET_HW_SPEC_CMD\)')
+
+    $freshDoneThenCleanupThenParse = [regex]::IsMatch($poll, 'host_cmd_done_is_current\(\s*job\.cmd_done_low_baseline,\s*status,\s*HOST_INTR_CMD_DONE.*if job\.phase == ConnectionStage::PostPmkHwSpecCanary', [Text.RegularExpressions.RegexOptions]::Singleline) -and
+        [regex]::IsMatch($completion, 'let cleanup_verified = quarantine_connection_job\(&job\).*if !cleanup_verified.*MmioOrDoorbellUnavailable.*else.*parse_post_pmk_hw_spec_canary_response\(&job\).*ExpectedCompletion.*FwResult.*FirmwareResult.*MalformedOrWrongCompletion', [Text.RegularExpressions.RegexOptions]::Singleline) -and
+        [regex]::IsMatch($parser, 'slice::from_raw_parts\(connect_rsp_ptr\(\)\.cast_const\(\), MWIFIEX_UPLD_SIZE\).*parse_hw_spec_response\(\s*connection_phase_seq\(job.seq, job.phase\),\s*response.*\.map\(\|_\| \(\)\)', [Text.RegularExpressions.RegexOptions]::Singleline) -and
+        -not [regex]::IsMatch($poll.Substring(0, $doneAt), 'parse_post_pmk_hw_spec_canary_response|connect_rsp_ptr')
+
+    $timeoutIsBoundedAndObservational = [regex]::IsMatch($DriverText, 'const CONNECT_CMD_TIMEOUT_MS:\s*u64\s*=\s*15_000') -and
+        ([regex]::Matches($timeout, 'read_reg\(mmio, PCIE_CPU_INT_STATUS\)').Count -eq 1) -and
+        [regex]::IsMatch($timeout, 'doorbell_status = read_reg\(mmio, PCIE_CPU_INT_STATUS\).*cleanup_verified = quarantine_connection_job.*status == u32::MAX.*doorbell_status == u32::MAX.*!cleanup_verified.*MmioOrDoorbellUnavailable.*doorbell_status & CPU_INTR_DOOR_BELL == 0.*TimeoutDoorbellCleared.*TimeoutDoorbellStillSet', [Text.RegularExpressions.RegexOptions]::Singleline) -and
+        -not [regex]::IsMatch($timeout, 'parse_post_pmk_hw_spec_canary_response|connect_rsp_ptr|ExpectedCompletion')
+
+    $allTerminalAndNoNetwork = [regex]::IsMatch($timeout, 'MmioOrDoorbellUnavailable.*TimeoutDoorbellCleared.*TimeoutDoorbellStillSet.*queue_post_pmk_canary_result\(outcome\).*ConnectionResult::RebootRequired.*ConnectionStage::Failed', [Text.RegularExpressions.RegexOptions]::Singleline) -and
+        [regex]::IsMatch($currentEpochGate, 'if status & HOST_INTR_CMD_DONE != 0.*if job\.phase == ConnectionStage::PostPmkHwSpecCanary.*queue_post_pmk_canary_result\(PostPmkCanaryOutcome::StaleHighCompletion\).*ConnectionTransportError::StaleCommandDone.*ConnectionStage::Failed', [Text.RegularExpressions.RegexOptions]::Singleline) -and
+        [regex]::IsMatch($completion, 'MmioOrDoorbellUnavailable.*ExpectedCompletion.*FirmwareResult.*MalformedOrWrongCompletion.*queue_post_pmk_canary_result\(outcome\).*ConnectionResult::RebootRequired.*ConnectionStage::Failed', [Text.RegularExpressions.RegexOptions]::Singleline) -and
+        [regex]::IsMatch($poll, 'ConnectionTransportError::StaleCommandDone.*PostPmkCanaryOutcome::StaleHighCompletion.*ConnectionTransportError::MmioUnavailable.*PostPmkCanaryOutcome::MmioOrDoorbellUnavailable.*PostPmkCanaryOutcome::HostPublicationFailure', [Text.RegularExpressions.RegexOptions]::Singleline) -and
+        [regex]::IsMatch(($timeout + $completion), 'ConnectionResult::RebootRequired.*ConnectionStage::Failed.*DATA_LINK_READY\.store\(false.*DeferredNetworkAction::None', [Text.RegularExpressions.RegexOptions]::Singleline) -and
+        -not [regex]::IsMatch(($timeout + $completion), 'DATA_LINK_READY\.store\(true|activate_validated_data_dma|DeferredNetworkAction::Attach|ConnectionStage::LinkReady|WaitPortRelease|build_associate') -and
+        [regex]::IsMatch($quarantine, 'DATA_LINK_READY\.store\(false.*terminal_quiesce_and_cleanup_while_gated.*CONNECTION_REBOOT_REQUIRED\.swap\(true', [Text.RegularExpressions.RegexOptions]::Singleline) -and
+        [regex]::IsMatch($start, 'connection_reboot_required\(\).*ConnectionResult::RebootRequired', [Text.RegularExpressions.RegexOptions]::Singleline) -and
+        [regex]::IsMatch($finish, 'previous_stage != ConnectionStage::PostPmkHwSpecCanary.*queue_fixed_hw_failure_trace', [Text.RegularExpressions.RegexOptions]::Singleline)
+
+    foreach ($check in @(@("stable",$stableResult),@("record",$oneSecretFreeRecord),@("flow",$profilePmkCanaryOnly),@("done",$freshDoneThenCleanupThenParse),@("timeout",$timeoutIsBoundedAndObservational),@("terminal",$allTerminalAndNoNetwork))) { if (-not $check[1]) { [Console]::Error.WriteLine("H25_DEBUG " + $check[0]) } }
+    $stableResult -and $oneSecretFreeRecord -and $profilePmkCanaryOnly -and
+        $freshDoneThenCleanupThenParse -and $timeoutIsBoundedAndObservational -and
+        $allTerminalAndNoNetwork
+}
+
 Require (Test-ConnectionTimeoutFingerprint $driver $trace) "connection-timeout fingerprint layout, ordering, redaction, one-shot trace, or fail-closed boundary is incomplete"
 Require (Test-AssociateDoorbellAck $driver) "Associate doorbell ACK values, single-read placement, third-step ordering, redaction, or observational boundary is incomplete"
+Require (Test-H25PostPmkHwSpecCanary $driver) "H25 post-PMK GET_HW_SPEC canary flow, completion boundary, result encoding, quarantine, or redaction is incomplete"
+$canaryResponseAsCompletion = $driver.Replace(
+    'if !marvell_wifi_cmd::host_cmd_done_is_current(',
+    'if parse_post_pmk_hw_spec_canary_response(&job).is_err() || !marvell_wifi_cmd::host_cmd_done_is_current('
+)
+Require ($canaryResponseAsCompletion -cne $driver) "H25 response-as-completion mutation fixture did not apply"
+Require (-not (Test-H25PostPmkHwSpecCanary $canaryResponseAsCompletion)) "H25 response-as-completion failure injection was accepted"
+$canaryParseBeforeCleanup = $driver.Replace(
+    'let cleanup_verified = quarantine_connection_job(&job);',
+    'let _early_canary_response = parse_post_pmk_hw_spec_canary_response(&job); let cleanup_verified = quarantine_connection_job(&job);'
+)
+Require ($canaryParseBeforeCleanup -cne $driver) "H25 pre-cleanup parse mutation fixture did not apply"
+Require (-not (Test-H25PostPmkHwSpecCanary $canaryParseBeforeCleanup)) "H25 pre-cleanup response parse failure injection was accepted"
+$canaryStaleAsExpected = $driver.Replace(
+    'queue_post_pmk_canary_result(PostPmkCanaryOutcome::StaleHighCompletion);',
+    'queue_post_pmk_canary_result(PostPmkCanaryOutcome::ExpectedCompletion);'
+)
+Require ($canaryStaleAsExpected -cne $driver) "H25 stale-high mutation fixture did not apply"
+Require (-not (Test-H25PostPmkHwSpecCanary $canaryStaleAsExpected)) "H25 stale-high completion failure injection was accepted"
+$canaryAssociatePublication = $driver.Replace(
+    'ConnectionStage::PostPmkHwSpecCanary => Some(marvell_wifi_cmd::GET_HW_SPEC_CMD),',
+    'ConnectionStage::PostPmkHwSpecCanary => Some(marvell_wifi_cmd::ASSOCIATE_CMD),'
+)
+Require ($canaryAssociatePublication -cne $driver) "H25 Associate publication mutation fixture did not apply"
+Require (-not (Test-H25PostPmkHwSpecCanary $canaryAssociatePublication)) "H25 accidental Associate publication failure injection was accepted"
+$canarySecretLeak = $driver.Replace(
+    'post_pmk_canary_trace_value(outcome),',
+    'connect_rsp_ptr() as u32,'
+)
+Require ($canarySecretLeak -cne $driver) "H25 response payload/address mutation fixture did not apply"
+Require (-not (Test-H25PostPmkHwSpecCanary $canarySecretLeak)) "H25 response payload/address persistence failure injection was accepted"
 $responseBeforeQuiesce = $driver.Replace(
     'let cleanup_verified = quarantine_connection_job(&job);',
     'let _early_response = connection_timeout_response_class_after_verified_cleanup(&job); let cleanup_verified = quarantine_connection_job(&job);'

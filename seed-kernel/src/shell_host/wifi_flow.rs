@@ -1191,6 +1191,9 @@ fn connection_progress() -> (usize, &'static str) {
         marvell_wifi_pcie::ConnectionStage::Idle => (4, "Preparing connection"),
         marvell_wifi_pcie::ConnectionStage::SupplicantProfile => (32, "Configuring WPA2 profile"),
         marvell_wifi_pcie::ConnectionStage::SupplicantPmk => (54, "Loading connection credential"),
+        marvell_wifi_pcie::ConnectionStage::PostPmkHwSpecCanary => {
+            (64, "Checking post-PMK command path")
+        }
         marvell_wifi_pcie::ConnectionStage::Associate => (76, "Associating with access point"),
         marvell_wifi_pcie::ConnectionStage::WaitPortRelease => (90, "Completing WPA2 key exchange"),
         marvell_wifi_pcie::ConnectionStage::LinkReady => (100, "Link ready; requesting address"),

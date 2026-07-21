@@ -433,6 +433,36 @@ function Convert-AssociateDoorbellAck {
     }
 }
 
+function Convert-PostPmkHwSpecCanaryResult {
+    param([uint32]$Value)
+
+    $tagMask = [Convert]::ToUInt32("ffffff00", 16)
+    $expectedTag = [Convert]::ToUInt32("d2250000", 16)
+    if (($Value -band $tagMask) -ne $expectedTag) {
+        throw "post_pmk_hw_spec_canary_tag_invalid"
+    }
+    $outcomeCode = [int]($Value -band 0xff)
+    $outcome = switch ($outcomeCode) {
+        0 { "expected_completion" }
+        1 { "firmware_result" }
+        2 { "malformed_or_wrong_completion" }
+        3 { "timeout_doorbell_cleared" }
+        4 { "timeout_doorbell_still_set" }
+        5 { "mmio_or_doorbell_unavailable" }
+        6 { "stale_high_completion" }
+        7 { "host_publication_failure" }
+        default { throw "post_pmk_hw_spec_canary_value_invalid" }
+    }
+
+    [pscustomobject][ordered]@{
+        format_version = 1
+        outcome = $outcome
+        outcome_code = $outcomeCode
+        network_state_granted = $false
+        cold_reboot_required = $true
+    }
+}
+
 function Get-HwFailureRegisterName {
     param([int]$Register)
     switch ($Register) {
@@ -569,6 +599,10 @@ function Read-ReclogTraces {
                     $decodedStep["associate_doorbell_ack"] =
                         Convert-AssociateDoorbellAck ([uint32]$step[4])
                 }
+                if ($phase -eq 2 -and $status -eq 109 -and $register -eq 4) {
+                    $decodedStep["post_pmk_hw_spec_canary"] =
+                        Convert-PostPmkHwSpecCanaryResult ([uint32]$step[4])
+                }
                 $decodedSteps += [pscustomobject]$decodedStep
             }
             $records += [pscustomobject][ordered]@{
@@ -660,14 +694,18 @@ function Invoke-SelfTest {
     $frame = New-SelfTestFrame -PayloadText $payload -Sequence 1 -PreviousFrameHash (New-Object byte[] 32)
     $doorbellPayload = '{"schema":"raios.hw_failure_trace.v0","classification":"local_only","scope":"current_boot","build_id":65536,"subsystem":1,"steps":[[30,5,100,1,0],[30,5,100,9,2797897804],[30,5,100,8,3523280896]]}'
     $doorbellFrame = New-SelfTestFrame -PayloadText $doorbellPayload -Sequence 2 -PreviousFrameHash (Get-Sha256Bytes $frame)
+    $canaryValue = [Convert]::ToUInt32("d2250000", 16)
+    $canaryPayload = '{"schema":"raios.hw_failure_trace.v0","classification":"local_only","scope":"current_boot","build_id":65536,"subsystem":1,"steps":[[40,2,109,4,' + $canaryValue + ']]}'
+    $canaryFrame = New-SelfTestFrame -PayloadText $canaryPayload -Sequence 3 -PreviousFrameHash (Get-Sha256Bytes $doorbellFrame)
     $usbPayload = '{"schema":"raios.usb_diag.v0","classification":"local_only","scope":"current_boot","reason":"boot_probe","seq":3,"hub_count":1,"hub_ports":4,"hub_connected":2,"hub_reset":1,"hub_done":2,"recover":0,"reports":12,"errors":0,"last_int_cc":1,"last_xfer_cc":1,"last_cmd":42,"last_cc":1,"enum_vid":4660,"enum_pid":22136,"m_port":1,"m_chg":0,"m_ep":1}'
-    $usbFrame = New-SelfTestFrame -PayloadText $usbPayload -Sequence 3 -PreviousFrameHash (Get-Sha256Bytes $doorbellFrame)
-    $region = New-Object byte[] ($SectorSize * 4)
+    $usbFrame = New-SelfTestFrame -PayloadText $usbPayload -Sequence 4 -PreviousFrameHash (Get-Sha256Bytes $canaryFrame)
+    $region = New-Object byte[] ($SectorSize * 5)
     [Array]::Copy($frame, 0, $region, 0, $SectorSize)
     [Array]::Copy($doorbellFrame, 0, $region, $SectorSize, $SectorSize)
-    [Array]::Copy($usbFrame, 0, $region, $SectorSize * 2, $SectorSize)
+    [Array]::Copy($canaryFrame, 0, $region, $SectorSize * 2, $SectorSize)
+    [Array]::Copy($usbFrame, 0, $region, $SectorSize * 3, $SectorSize)
     $parsed = Read-ReclogTraces -Region $region -AbsoluteStartLba 100
-    if ($parsed.records.Count -ne 2 -or
+    if ($parsed.records.Count -ne 3 -or
         $parsed.records[0].kind -cne "k2_publication" -or
         $parsed.records[0].decoded_steps[0].register_name -cne "marvell_pci_command" -or
         $parsed.records[0].decoded_steps[1].status_name -cne "k2_publication_rejected" -or
@@ -688,6 +726,10 @@ function Invoke-SelfTest {
         $parsed.records[1].decoded_steps[1].connection_timeout_fingerprint.response_class -cne "untouched_zero" -or
         $parsed.records[1].decoded_steps[2].register_name -cne "marvell_publication_step" -or
         $parsed.records[1].decoded_steps[2].associate_doorbell_ack.classification -cne "cleared" -or
+        $parsed.records[2].decoded_steps.Count -ne 1 -or
+        $parsed.records[2].decoded_steps[0].post_pmk_hw_spec_canary.outcome -cne "expected_completion" -or
+        $parsed.records[2].decoded_steps[0].post_pmk_hw_spec_canary.network_state_granted -ne $false -or
+        $parsed.records[2].decoded_steps[0].post_pmk_hw_spec_canary.cold_reboot_required -ne $true -or
         $parsed.usb_diagnostics.Count -ne 1 -or
         $parsed.usb_diagnostics[0].diagnostic.reason -cne "boot_probe" -or
         $parsed.tail_status -cne "zero_tail") {
@@ -724,6 +766,38 @@ function Invoke-SelfTest {
         try {
             [void](Convert-AssociateDoorbellAck ([Convert]::ToUInt32($mutation[0], 16)))
             throw "selftest_associate_doorbell_ack_mutation_not_rejected"
+        }
+        catch {
+            if ($_.Exception.Message -cne $mutation[1]) {
+                throw
+            }
+        }
+    }
+
+    $canaryCases = [ordered]@{
+        "d2250000" = "expected_completion"
+        "d2250001" = "firmware_result"
+        "d2250002" = "malformed_or_wrong_completion"
+        "d2250003" = "timeout_doorbell_cleared"
+        "d2250004" = "timeout_doorbell_still_set"
+        "d2250005" = "mmio_or_doorbell_unavailable"
+        "d2250006" = "stale_high_completion"
+        "d2250007" = "host_publication_failure"
+    }
+    foreach ($case in $canaryCases.GetEnumerator()) {
+        $decoded = Convert-PostPmkHwSpecCanaryResult ([Convert]::ToUInt32($case.Key, 16))
+        if ($decoded.outcome -cne $case.Value -or $decoded.network_state_granted -ne $false -or
+            $decoded.cold_reboot_required -ne $true) {
+            throw "selftest_post_pmk_hw_spec_canary_classification_failed"
+        }
+    }
+    foreach ($mutation in @(
+        @("c2250000", "post_pmk_hw_spec_canary_tag_invalid"),
+        @("d2250008", "post_pmk_hw_spec_canary_value_invalid")
+    )) {
+        try {
+            [void](Convert-PostPmkHwSpecCanaryResult ([Convert]::ToUInt32($mutation[0], 16)))
+            throw "selftest_post_pmk_hw_spec_canary_mutation_not_rejected"
         }
         catch {
             if ($_.Exception.Message -cne $mutation[1]) {
@@ -780,7 +854,7 @@ function Invoke-SelfTest {
     [pscustomobject][ordered]@{
         schema = "raios.hw_failure_trace.extractor_selftest.v0"
         status = "passed"
-        checks = @("gpt_guid_known_vector", "gpt_guid_invalid_length_rejected", "powershell51_crc32", "crc32_mutation_rejected", "verified_readback", "k2_decoded", "connection_timeout_fingerprint_decoded", "connection_timeout_fingerprint_bit_mutation_rejected", "associate_doorbell_ack_decoded", "associate_doorbell_ack_tag_mutation_rejected", "associate_doorbell_ack_value_mutation_rejected", "usb_diag_visible", "legacy_negative_usb_diag_rejected", "torn_rejected", "secret_field_rejected", "full_region_reported")
+        checks = @("gpt_guid_known_vector", "gpt_guid_invalid_length_rejected", "powershell51_crc32", "crc32_mutation_rejected", "verified_readback", "k2_decoded", "connection_timeout_fingerprint_decoded", "connection_timeout_fingerprint_bit_mutation_rejected", "associate_doorbell_ack_decoded", "associate_doorbell_ack_tag_mutation_rejected", "associate_doorbell_ack_value_mutation_rejected", "post_pmk_hw_spec_canary_decoded", "post_pmk_hw_spec_canary_tag_mutation_rejected", "post_pmk_hw_spec_canary_value_mutation_rejected", "usb_diag_visible", "legacy_negative_usb_diag_rejected", "torn_rejected", "secret_field_rejected", "full_region_reported")
     } | ConvertTo-Json -Depth 4 -Compress
 }
 

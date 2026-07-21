@@ -325,6 +325,38 @@ const CONNECTION_TIMEOUT_COMMAND_LEN_SHIFT: u32 = 4;
 const CONNECTION_TIMEOUT_REQUEST_HEADER_MATCH: u32 = 1 << 3;
 const CONNECTION_TIMEOUT_CLEANUP_VERIFIED: u32 = 1 << 2;
 
+// Stable, secret-free H25 post-PMK GET_HW_SPEC canary result. The upper
+// 24 bits are an exact format tag and the low byte is one terminal outcome.
+// No response fields, hardware data, target metadata, DMA address, or secret
+// material are persisted. Values outside the enum are reserved.
+const POST_PMK_CANARY_RESULT_TAG: u32 = 0xD225_0000;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u8)]
+enum PostPmkCanaryOutcome {
+    ExpectedCompletion = 0,
+    FirmwareResult = 1,
+    MalformedOrWrongCompletion = 2,
+    TimeoutDoorbellCleared = 3,
+    TimeoutDoorbellStillSet = 4,
+    MmioOrDoorbellUnavailable = 5,
+    StaleHighCompletion = 6,
+    HostPublicationFailure = 7,
+}
+
+const fn post_pmk_canary_trace_value(outcome: PostPmkCanaryOutcome) -> u32 {
+    POST_PMK_CANARY_RESULT_TAG | outcome as u32
+}
+
+fn queue_post_pmk_canary_result(outcome: PostPmkCanaryOutcome) {
+    queue_fixed_hw_failure_trace(
+        HwFailurePhase::HardwareSpec,
+        HwFailureStatus::NetworkStateNotGranted,
+        HwFailureRegister::MarvellCommandResponseStatus,
+        post_pmk_canary_trace_value(outcome),
+    );
+}
+
 // Stable, secret-free Associate doorbell acknowledgement values. These are
 // publication diagnostics, not command completion or DMA-consumption proof.
 const ASSOCIATE_DOORBELL_ACK_CLEARED: u32 = 0xD201_0000;
@@ -786,6 +818,7 @@ pub enum ConnectionStage {
     Idle,
     SupplicantProfile,
     SupplicantPmk,
+    PostPmkHwSpecCanary,
     Associate,
     WaitPortRelease,
     LinkReady,
@@ -807,6 +840,7 @@ impl ConnectionStage {
             Self::Idle => "idle",
             Self::SupplicantProfile => "supplicant_profile",
             Self::SupplicantPmk => "supplicant_pmk",
+            Self::PostPmkHwSpecCanary => "post_pmk_hw_spec_canary",
             Self::Associate => "associate",
             Self::WaitPortRelease => "wait_port_release",
             Self::LinkReady => "link_ready",
@@ -3460,6 +3494,27 @@ pub fn poll_connection() -> bool {
 
         if elapsed_ms(job.phase_started_tsc) >= CONNECT_CMD_TIMEOUT_MS {
             let status = read_reg(mmio, PCIE_HOST_INT_STATUS);
+            if job.phase == ConnectionStage::PostPmkHwSpecCanary {
+                let doorbell_status = read_reg(mmio, PCIE_CPU_INT_STATUS);
+                let cleanup_verified = quarantine_connection_job(&job);
+                let outcome =
+                    if status == u32::MAX || doorbell_status == u32::MAX || !cleanup_verified {
+                        PostPmkCanaryOutcome::MmioOrDoorbellUnavailable
+                    } else if doorbell_status & CPU_INTR_DOOR_BELL == 0 {
+                        PostPmkCanaryOutcome::TimeoutDoorbellCleared
+                    } else {
+                        PostPmkCanaryOutcome::TimeoutDoorbellStillSet
+                    };
+                queue_post_pmk_canary_result(outcome);
+                finish_connection_locked(
+                    &mut runtime,
+                    ConnectionResult::RebootRequired,
+                    ConnectionStage::Failed,
+                    status,
+                );
+                DATA_LINK_READY.store(false, Ordering::Release);
+                return (true, DeferredNetworkAction::None);
+            }
             let associate_doorbell_ack = if job.phase == ConnectionStage::Associate {
                 Some(associate_doorbell_ack_trace_value(read_reg(
                     mmio,
@@ -3515,6 +3570,17 @@ pub fn poll_connection() -> bool {
                         }
                         _ => ConnectionTransportError::PciCommandEnableFailed,
                     };
+                    if job.phase == ConnectionStage::PostPmkHwSpecCanary {
+                        let outcome = if transport == ConnectionTransportError::StaleCommandDone {
+                            PostPmkCanaryOutcome::StaleHighCompletion
+                        } else if transport == ConnectionTransportError::MmioUnavailable {
+                            PostPmkCanaryOutcome::MmioOrDoorbellUnavailable
+                        } else {
+                            PostPmkCanaryOutcome::HostPublicationFailure
+                        };
+                        quarantine_connection_job(&job);
+                        queue_post_pmk_canary_result(outcome);
+                    }
                     finish_connection_locked(
                         &mut runtime,
                         ConnectionResult::Transport(transport),
@@ -3530,6 +3596,10 @@ pub fn poll_connection() -> bool {
                 Err(result) => {
                     let _ = terminal_quiesce_and_cleanup_while_gated(job.pci_address, mmio);
                     clear_connection_secret_dma(&job);
+                    if job.phase == ConnectionStage::PostPmkHwSpecCanary {
+                        quarantine_connection_job(&job);
+                        queue_post_pmk_canary_result(PostPmkCanaryOutcome::HostPublicationFailure);
+                    }
                     finish_connection_locked(
                         &mut runtime,
                         result,
@@ -3544,6 +3614,14 @@ pub fn poll_connection() -> bool {
                 let status = job.transport_diagnostic.post_clear_status;
                 runtime.snapshot.transport_diagnostic = Some(job.transport_diagnostic);
                 quarantine_connection_job(&job);
+                if job.phase == ConnectionStage::PostPmkHwSpecCanary {
+                    let outcome = if error == ConnectionTransportError::MmioUnavailable {
+                        PostPmkCanaryOutcome::MmioOrDoorbellUnavailable
+                    } else {
+                        PostPmkCanaryOutcome::HostPublicationFailure
+                    };
+                    queue_post_pmk_canary_result(outcome);
+                }
                 finish_connection_locked(
                     &mut runtime,
                     ConnectionResult::Transport(error),
@@ -3574,6 +3652,9 @@ pub fn poll_connection() -> bool {
         runtime.snapshot.transport_diagnostic = Some(job.transport_diagnostic);
         if status == u32::MAX {
             quarantine_connection_job(&job);
+            if job.phase == ConnectionStage::PostPmkHwSpecCanary {
+                queue_post_pmk_canary_result(PostPmkCanaryOutcome::MmioOrDoorbellUnavailable);
+            }
             finish_connection_locked(
                 &mut runtime,
                 ConnectionResult::Transport(ConnectionTransportError::MmioUnavailable),
@@ -3590,6 +3671,9 @@ pub fn poll_connection() -> bool {
         ) {
             if status & HOST_INTR_CMD_DONE != 0 {
                 quarantine_connection_job(&job);
+                if job.phase == ConnectionStage::PostPmkHwSpecCanary {
+                    queue_post_pmk_canary_result(PostPmkCanaryOutcome::StaleHighCompletion);
+                }
                 finish_connection_locked(
                     &mut runtime,
                     ConnectionResult::Transport(ConnectionTransportError::StaleCommandDone),
@@ -3603,6 +3687,29 @@ pub fn poll_connection() -> bool {
             }
             runtime.job = Some(job);
             return (false, DeferredNetworkAction::None);
+        }
+
+        if job.phase == ConnectionStage::PostPmkHwSpecCanary {
+            let cleanup_verified = quarantine_connection_job(&job);
+            let outcome = if !cleanup_verified {
+                PostPmkCanaryOutcome::MmioOrDoorbellUnavailable
+            } else {
+                compiler_fence(Ordering::SeqCst);
+                match parse_post_pmk_hw_spec_canary_response(&job) {
+                    Ok(()) => PostPmkCanaryOutcome::ExpectedCompletion,
+                    Err(HwSpecCmdError::FwResult { .. }) => PostPmkCanaryOutcome::FirmwareResult,
+                    Err(_) => PostPmkCanaryOutcome::MalformedOrWrongCompletion,
+                }
+            };
+            queue_post_pmk_canary_result(outcome);
+            finish_connection_locked(
+                &mut runtime,
+                ConnectionResult::RebootRequired,
+                ConnectionStage::Failed,
+                status,
+            );
+            DATA_LINK_READY.store(false, Ordering::Release);
+            return (true, DeferredNetworkAction::None);
         }
 
         if !terminal_quiesce_and_cleanup_while_gated(job.pci_address, mmio) {
@@ -3728,7 +3835,8 @@ pub fn poll_connection() -> bool {
 fn next_connection_phase(stage: ConnectionStage, security: Dot11Security) -> ConnectionStage {
     match stage {
         ConnectionStage::SupplicantProfile => ConnectionStage::SupplicantPmk,
-        ConnectionStage::SupplicantPmk => ConnectionStage::Associate,
+        ConnectionStage::SupplicantPmk => ConnectionStage::PostPmkHwSpecCanary,
+        ConnectionStage::PostPmkHwSpecCanary => ConnectionStage::Failed,
         ConnectionStage::Associate if security == Dot11Security::Wpa2 => {
             ConnectionStage::WaitPortRelease
         }
@@ -3749,6 +3857,7 @@ fn finish_connection_locked(
             ConnectionStage::SupplicantProfile | ConnectionStage::SupplicantPmk => {
                 HwFailurePhase::Authenticate
             }
+            ConnectionStage::PostPmkHwSpecCanary => HwFailurePhase::HardwareSpec,
             ConnectionStage::Associate => HwFailurePhase::Associate,
             ConnectionStage::WaitPortRelease => HwFailurePhase::KeyExchange,
             _ => HwFailurePhase::LinkBringup,
@@ -3766,12 +3875,14 @@ fn finish_connection_locked(
             }
             _ => HwFailureStatus::TransportFault,
         };
-        queue_fixed_hw_failure_trace(
-            phase,
-            status,
-            HwFailureRegister::MarvellHostInterruptStatus,
-            host_int_status,
-        );
+        if previous_stage != ConnectionStage::PostPmkHwSpecCanary {
+            queue_fixed_hw_failure_trace(
+                phase,
+                status,
+                HwFailureRegister::MarvellHostInterruptStatus,
+                host_int_status,
+            );
+        }
     }
     runtime.job = None;
     runtime.snapshot.running = false;
@@ -5037,6 +5148,8 @@ fn prepare_connection_dma(job: &mut ConnectionJob) -> Result<usize, ConnectionRe
                     }
                 },
             },
+            ConnectionStage::PostPmkHwSpecCanary => marvell_wifi_cmd::build_get_hw_spec(seq, out)
+                .map_err(|_| ConnectionResult::CommandBuild(MarvellCmdError::BadLength)),
             ConnectionStage::Associate => {
                 let security_ie = if job.target.security_ie().is_empty() {
                     None
@@ -5141,6 +5254,7 @@ const fn connection_stage_timeout_code(stage: ConnectionStage) -> u32 {
         ConnectionStage::Idle => 0,
         ConnectionStage::SupplicantProfile => 1,
         ConnectionStage::SupplicantPmk => 2,
+        ConnectionStage::PostPmkHwSpecCanary => 7,
         ConnectionStage::Associate => 3,
         ConnectionStage::WaitPortRelease => 4,
         ConnectionStage::LinkReady => 5,
@@ -5173,6 +5287,18 @@ fn connection_timeout_fingerprint(
             0
         }
         | response_class as u32
+}
+
+/// Parses the H25 canary only after a proven current-epoch CMD_DONE and
+/// verified terminal cleanup. Returned hardware data is deliberately dropped.
+fn parse_post_pmk_hw_spec_canary_response(job: &ConnectionJob) -> Result<(), HwSpecCmdError> {
+    unsafe {
+        // SAFETY: the caller proved current CMD_DONE and terminal cleanup for
+        // the dedicated connection response mailbox before entering here.
+        let response = slice::from_raw_parts(connect_rsp_ptr().cast_const(), MWIFIEX_UPLD_SIZE);
+        marvell_wifi_cmd::parse_hw_spec_response(connection_phase_seq(job.seq, job.phase), response)
+            .map(|_| ())
+    }
 }
 
 fn parse_connection_dma_response(
@@ -5221,6 +5347,7 @@ fn connection_phase_seq(base: u8, phase: ConnectionStage) -> u16 {
     let offset: u16 = match phase {
         ConnectionStage::SupplicantProfile => 0,
         ConnectionStage::SupplicantPmk => 1,
+        ConnectionStage::PostPmkHwSpecCanary => 2,
         ConnectionStage::Associate => 2,
         _ => 7,
     };
@@ -5231,6 +5358,7 @@ fn connection_phase_command(phase: ConnectionStage) -> Option<u16> {
     match phase {
         ConnectionStage::SupplicantProfile => Some(marvell_wifi_supplicant::SUPPLICANT_PROFILE_CMD),
         ConnectionStage::SupplicantPmk => Some(marvell_wifi_supplicant::SUPPLICANT_PMK_CMD),
+        ConnectionStage::PostPmkHwSpecCanary => Some(marvell_wifi_cmd::GET_HW_SPEC_CMD),
         ConnectionStage::Associate => Some(marvell_wifi_cmd::ASSOCIATE_CMD),
         _ => None,
     }
