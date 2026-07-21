@@ -3,7 +3,7 @@
 > Window, not log: exactly one Now, one Next step, and three Recently entries.
 > Replace on update; never append. Keep under 60 lines and roughly 2 KB.
 
-## Now (2026-07-21 ~12:15, root orchestrator active)
+## Now (2026-07-21 ~13:10, root orchestrator active)
 
 H22 hardware-proved commit `c787320`: the old construction-time
 `0xD1030001` RX-pointer failure is absent, HID remains usable, and Wi-Fi reaches
@@ -18,23 +18,28 @@ Two independent read-only reviews selected diagnostic-first. Commit `f77ca05`
 adds one secret-free association-timeout fingerprint after verified terminal
 quiesce, while preserving `CMD_DONE` as the sole success predicate and the
 one-shot terminal host-status step. Focused tests, mutation negatives,
-extractor selftest, release build, and final read-only ACCEPT are green. Code is
-pushed on `main`. No Wi-Fi, traffic, domain, IOMMU, or isolation checkbox closes.
+extractor selftest, release build, and final read-only ACCEPT are green.
+
+H23 is written to serial-pinned SanDisk `0101d57ec458c24f1b93`. Kernel SHA-256
+is `6834c6a320549d378b8e19b3c64d10bed00388ac12536d6af4d4b99d2d31a537`;
+firmware remains `cf4f51f41bd7ef4d7fe65fb76b8a2a0897bc70a0742bc4aea13d93b03fffd03a`.
+A/B ESP, Boot Control, SEED_DATA, empty RECLOG, and writer readback are green.
+Transcript: `%TEMP%\raios-h23-usb-write-f77ca05.transcript.log`. No scope box
+closes until the physical H23 result exists.
 
 ## Next step
 
-Package and write H23 from `f77ca05`, verify both slots and readback, then perform
-exactly one cold Surface boot and start Wi-Fi once. Do not use same-boot Retry
-after quarantine. On failure, power down and extract RECLOG before any rewrite.
+Perform exactly one cold Surface boot and start Wi-Fi once. Do not use same-boot
+Retry after quarantine. Record the first visible result. On failure, power down,
+return the stick, and extract RECLOG before any rewrite.
 
 ## Recently (exactly 3, newest first)
 
+### 2026-07-21 — H23 persistent Surface stick prepared
+Kernel-bound policy, pinned firmware, A/B layout, SEED_DATA, and readback green.
+
 ### 2026-07-21 — `f77ca05` adds the H23 timeout fingerprint
-The bounded trace distinguishes untouched, expected, mismatched, or unavailable
-response headers only after verified cleanup; no secret-bearing bytes persist.
+The bounded trace records header class only after verified terminal cleanup.
 
 ### 2026-07-21 — H22 reaches physical association
 Profile and PMK completed; `ASSOCIATE_CMD 0x0012` timed out without `CMD_DONE`.
-
-### 2026-07-21 — `c787320` is hardware-proven
-The premature RX-pointer failure disappeared and HID remained usable.
