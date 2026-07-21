@@ -53,6 +53,12 @@ Surface run produced six valid chained frames, a clean zero tail, and USB
 current-epoch `CMD_DONE`; network state remained denied and reboot-required as
 designed. Generic post-PMK HostCmd mailbox liveness is therefore hardware-proven,
 leaving Associate/BSS-specific setup or semantics as the next discriminator.
+Linux `mwifiex` comparison identified one concrete unimplemented input: its
+Associate builder appends `TLV_TYPE_TSFTIMESTAMP` (`0x0113`) with the firmware
+scan TSF and AP beacon timestamp, while raiOS currently retains/appends neither.
+H26 is therefore scoped to carry those two scan values into Associate and to
+restore the real PMK -> Associate path; no H26 implementation or stick image
+exists yet.
 The path is still in-kernel; connection, traffic, domain execution, IOMMU
 fencing, and safe kill/restart remain open.
 
