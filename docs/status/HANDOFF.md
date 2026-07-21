@@ -3,44 +3,49 @@
 > Window, not log: exactly one Now, one Next step, and three Recently entries.
 > Replace on update; never append. Keep under 60 lines and roughly 2 KB.
 
-## Now (2026-07-21, paused cleanly at owner request)
+## Now (2026-07-21, cleanup iteration secured)
 
-H25 hardware-proved commit `d617efd`. The saved read-only extraction
-`E:\raios-build\h25-reclog-after-d617efd.json` has six valid chained frames, a
-clean zero tail, USB `errors=0`, and an expected current-epoch completion for
-the post-PMK `GET_HW_SPEC` canary at 120.707 seconds. Network remained denied
-and cold reboot remained required. Generic post-PMK mailbox/firmware liveness
-is proven; the fault is Associate/BSS-specific.
+Canonical integration is the clean `main` worktree at
+`C:\Users\admin\Documents\raios2-main`; `HEAD == main == origin/main` at
+`c71b863`. Three separate pushed commits restored the Owner's two-review gate,
+made HANDOFF the cursor, and aligned the derived status views with H25/H26.
 
-Linux `mwifiex` comparison selected H26: retain the scan firmware TSF and AP
-beacon timestamp, append `TLV_TYPE_TSFTIMESTAMP` (`0x0113`, firmware then AP)
-to Associate, and restore PMK -> Associate. This is a functional correction,
-not another diagnostic-only boot.
+The old root `C:\Users\admin\Documents\raios2` remains detached at `09751a7`
+and holds preserved stopped-lane WIP: rollback-image security, M8 crash-loop,
+NET8/Schannel, plus generated diagnostics. IOMMU, old HID/hwtrace, rejected
+W7.3, and website WIP also remain preserved. Do not stash, reset, clean,
+remove, merge, or treat that root as integration before lane disposition.
 
-Stick identity is Disk 2, `USB SanDisk 3.2Gen1`, serial
-`0101d57ec458c24f1b93`, USB, 30784094208 bytes, never Boot/System. Gate the
-elevated read-only extractor on that identity and first-1-MiB SHA-256
-`515a68c5ce3337112d0513b7d95524b836813f112c6751d912423454f0d702cb`; never
-pass erase confirmation. Writer evidence is under `E:\raios-build\h25-usb-*`.
+H25 `d617efd` plus saved read-only extraction proves current-epoch completion
+of the post-PMK `GET_HW_SPEC` canary. Association,
+`PORT_RELEASE`, DHCP, and traffic remain unproven; the fault is
+Associate/BSS-specific. H26 (scan firmware TSF + AP beacon timestamp in
+Associate TLV `0x0113`) is selected but not implemented.
 
-No H26 worker/build is active. Its clean empty worktree and branch were removed;
-the inserted stick was not rewritten. A final non-elevated extraction was denied
-by Windows raw-disk access, so the saved H25 JSON remains authoritative.
+H26 is owner-blocked before dispatch: `surface-pro-4.v1.json` has
+`curated_context_ready:false` because structured CPU, memory, and device facts
+from the Surface are missing (ADR 0027). No H26 worker or stick write is
+authorized. `vendor/limine` is a dangling Gitlink without `.gitmodules`; its
+empty directory keeps status clean but establishes no provenance.
 
 ## Next step
 
-Create one H26 scan-TSF -> Associate lane, run focused builder/parser negatives
-and one read-only Codex review, then package and write exactly one Surface stick.
-Keep current-completion gating, no same-boot retry/grant, and secret-free RECLOG.
+Create one non-hardware Surface-capture-tool lane with fixture negatives for
+the ADR-0027 CPU/memory/device facts. Do not dispatch H26 or write the stick.
+After the Owner runs the capture on the Surface and
+makes the manifest prompt-ready, pin its digest and dispatch H26 only through
+`scripts/invoke-codex-lane.ps1`.
 
 ## Recently (exactly 3, newest first)
 
-### 2026-07-21 — H26 restart point selected and workspace closed
-Linux `mwifiex` comparison selected the missing scan-TSF Associate TLV; no H26
-product work was started, and the empty temporary branch/worktree was removed.
+### 2026-07-21 — Repository control plane normalized
+Two neutral reviews preserved all WIP; clean main was moved out of `%TEMP%`,
+and control/README/status repairs landed as three pushed commits.
 
 ### 2026-07-21 — H25 proved post-PMK mailbox liveness
-The canary completed as expected; the remaining fault is Associate/BSS-specific.
+The canary completed as expected; network stayed denied and cold reboot stayed
+required. The remaining fault is Associate/BSS-specific.
 
-### 2026-07-21 — `d617efd` added the post-PMK canary
-Bounded completion/timeout classification; no network grant, retry, or secret log.
+### 2026-07-21 — H26 restart point selected
+Linux `mwifiex` comparison selected the missing scan-TSF Associate TLV; no H26
+product work, build, or stick rewrite was started.
