@@ -403,7 +403,7 @@ fn order_and_validate_records<'a>(
     Ok(ordered)
 }
 
-fn validate_payload(payload: CapturePayload) -> Result<(), CaptureValidationError> {
+pub(crate) fn validate_payload(payload: CapturePayload) -> Result<(), CaptureValidationError> {
     match payload {
         CapturePayload::SmbiosMemory(value) => {
             value.device_locator.as_bytes()?;

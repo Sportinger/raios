@@ -90,6 +90,7 @@ pub mod seed_data_layout;
 pub mod structured_store;
 pub mod structured_store_partition;
 pub mod surface_fact_capture;
+pub mod surface_fact_capture_wire;
 pub mod system_status_projection;
 pub mod thread_scheduler;
 pub mod tls13_session;
