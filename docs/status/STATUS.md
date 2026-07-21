@@ -421,10 +421,15 @@ See `docs/architecture/decisions/0001-raios-agent-protocol.md`.
   implemented paths.
 - Surface Pro 4 Wi-Fi runs now prove Marvell AVASTAR 88W8897 firmware upload,
   readiness, a live 2.4-GHz scan, WPA2 selection, and masked physical
-  passphrase entry. Association, `PORT_RELEASE`, DHCP, and traffic remain
-  unproven. H20 `Starting WiFi` coincided with loss of both keyboard and mouse;
-  Marvell ring hardware tests are under an isolation full brake pending DMA
-  bounds/ownership review and negative predicates (ADR 0034).
+  passphrase entry. H25 commit `d617efd` plus the saved read-only extraction
+  proves expected current-epoch completion of a post-PMK `GET_HW_SPEC` canary:
+  generic mailbox/firmware liveness is proven, while the remaining fault is
+  Associate/BSS-specific. Association, `PORT_RELEASE`, DHCP, and traffic remain
+  unproven. H26 is only the selected correction candidate: retain scan firmware
+  TSF and the AP beacon timestamp and append Associate TLV `0x0113`; no H26 code,
+  build, or stick run exists. The Surface manifest remains
+  `curated_context_ready:false`, and the ADR 0027 owner capture is missing, so
+  no H26 hardware worker or stick write is authorized.
 - Bare-metal USB preparation scripts exist, but writing a USB disk is destructive
   and must be done with an explicit disk number and confirmation string.
 - API key entry exists in the VM, but the key is RAM-only and not persisted in

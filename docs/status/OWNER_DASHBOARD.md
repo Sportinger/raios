@@ -354,22 +354,22 @@ from generated programs, durable state and broader program installation outside
 the exact W6 project-app path, broad mutation, owner sealing, authenticated
 ARTSTOR garbage collection, TPM auto-unlock, physical persistence, and live
 Surface association/`PORT_RELEASE`/DHCP. Firmware upload, live scan, WPA2
-selection, and physical passphrase entry were observed, but H20 `Starting
-WiFi` coincided with loss of keyboard and mouse. Marvell ring hardware tests
-are stopped under ADR 0034. Provider TLS still lacks full WebPKI chain and
-trusted-time validation.
+selection, and physical passphrase entry were observed. H25 commit `d617efd`
+and the saved read-only extraction prove expected current-epoch completion of
+the post-PMK `GET_HW_SPEC` canary, not association: generic mailbox/firmware
+liveness is proven, while the remaining fault is Associate/BSS-specific.
+Provider TLS still lacks full WebPKI chain and trusted-time validation.
 
-Stick: used for Surface boot and read-only RECLOG extraction on 2026-07-20.
-Extraction found one valid USB `boot_probe` (`errors=0`, `recoveries=0`) and no
-WiFi failure trace. This grants no BOOTCTL, persistence, or recovery authority.
+Stick: H25 evidence was extracted read-only; the saved log remains
+authoritative. The inserted stick was not rewritten. This grants no BOOTCTL,
+persistence, recovery, or H26 execution authority.
 
-Next product slice (vision order 2026-07-15): B1.2b — bind the now
-receiver-verified W7 candidate to complete M6 evidence and require a physical
-Genesis click before the one current-boot run. B1.2c then reuses W6 for durable
-install/autoload/rollback behind its separate signed second click. Next hardware
-slice: read-only Marvell DMA ring bounds/ownership review plus host-side
-foreign-region negatives. No further ring hardware test is authorized; any
-future run must be owner-authorized and start from a cold boot.
+Next hardware candidate: H26 would retain the scan firmware TSF and AP beacon
+timestamp and append them as Associate TLV `0x0113`. It is selected only; no
+H26 code, build, or stick run exists. `surface-pro-4.v1.json` still has
+`curated_context_ready:false`, and the owner capture required by ADR 0027 is
+missing. Therefore no H26 hardware worker may start and the stick may not be
+written.
 
 Refactor program (owner-ordered 2026-07-12, cost accepted): P0 and two of
 three P1 packets are DONE. The P0 inventory routed all 121 evidence files:
