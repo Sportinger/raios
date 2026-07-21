@@ -42,8 +42,15 @@ three valid chained frames and a clean zero tail show USB `errors=0`, the same
 correct untouched Associate request at 118.495 seconds, and a cleared HostCmd
 doorbell. Firmware acknowledged notification but produced no response or
 `CMD_DONE`. ADR 0037 therefore selects one post-PMK `GET_HW_SPEC` liveness
-canary in place of Associate for H25. The path is still in-kernel; connection,
-traffic, domain execution, IOMMU fencing, and safe kill/restart remain open.
+canary in place of Associate for H25. Commit `d617efd` implements that canary:
+only a current-epoch expected completion is accepted, its response is discarded,
+one secret-free result is retained, and every outcome quarantines without a
+network grant or same-boot retry. Focused predicates, mutation negatives, 61
+Marvell tests, 16 DMA-safety tests, unsafe-inventory verification, release build,
+and one independent read-only review are green. The GPT A/B + SEED_DATA H25
+Surface stick is prepared; hardware classification remains pending. The path is
+still in-kernel; connection, traffic, domain execution, IOMMU fencing, and safe
+kill/restart remain open.
 
 ## USB stack
 - [ ] Host controller domain; hotplug events surface as typed events
