@@ -48,9 +48,13 @@ one secret-free result is retained, and every outcome quarantines without a
 network grant or same-boot retry. Focused predicates, mutation negatives, 61
 Marvell tests, 16 DMA-safety tests, unsafe-inventory verification, release build,
 and one independent read-only review are green. The GPT A/B + SEED_DATA H25
-Surface stick is prepared; hardware classification remains pending. The path is
-still in-kernel; connection, traffic, domain execution, IOMMU fencing, and safe
-kill/restart remain open.
+Surface run produced six valid chained frames, a clean zero tail, and USB
+`errors=0`. At 120.707 seconds the post-PMK canary completed with the expected
+current-epoch `CMD_DONE`; network state remained denied and reboot-required as
+designed. Generic post-PMK HostCmd mailbox liveness is therefore hardware-proven,
+leaving Associate/BSS-specific setup or semantics as the next discriminator.
+The path is still in-kernel; connection, traffic, domain execution, IOMMU
+fencing, and safe kill/restart remain open.
 
 ## USB stack
 - [ ] Host controller domain; hotplug events surface as typed events

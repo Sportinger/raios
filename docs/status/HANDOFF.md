@@ -3,14 +3,21 @@
 > Window, not log: exactly one Now, one Next step, and three Recently entries.
 > Replace on update; never append. Keep under 60 lines and roughly 2 KB.
 
-## Now (2026-07-21 ~15:30, root orchestrator active)
+## Now (2026-07-21 ~16:15, root orchestrator active)
 
-H25 commit `d617efd` is accepted, pushed to `main`, packaged, and written to
-Surface test Disk 2. After WPA2 Profile and PMK it replaces Associate exactly
-once with a read-only `GET_HW_SPEC` canary on the same connection mailbox. It
-accepts only a current-epoch expected `CMD_DONE`, discards the returned HW spec,
-emits one bounded secret-free result, then quarantines with no network grant or
-same-boot retry. One independent read-only Codex review accepted the diff.
+H25 hardware-proved commit `d617efd`. Read-only extraction at
+`E:\raios-build\h25-reclog-after-d617efd.json` found six valid chained frames,
+a clean zero tail, and USB `errors=0`. At 120.707 seconds the one post-PMK
+`GET_HW_SPEC` canary completed with the expected current-epoch `CMD_DONE` and
+reported `post_pmk_hw_spec_canary.outcome=expected_completion`. Network state
+remained denied and cold reboot remained required as designed.
+
+This rules out a generic post-PMK HostCmd mailbox/firmware stall: Profile, PMK,
+and a subsequent command all complete on the same connection mailbox. The
+remaining failure is Associate/BSS-specific. H24 already proved Associate's
+correct 132-byte request, cleared doorbell, untouched response, and absent
+`CMD_DONE`; H26 must now discriminate missing/incorrect pre-Associate BSS state
+or command semantics without weakening fail-closed completion.
 
 Release kernel SHA-256 is
 `9cab38c0e41f2c029dde4e5b4de65caa89ed708c4e9e9994539d0a377ee0da0d`;
@@ -30,18 +37,18 @@ never pass erase confirmation.
 
 ## Next step
 
-Cold-boot H25 once, select WPA2 and enter the passphrase once. Do not Retry
-after quarantine. Power off, return the stick, and extract RECLOG read-only.
-Expected discriminator: canary completion means mailbox lives and Associate/BSS
-state is next; cleared-doorbell timeout means generic post-PMK firmware stall.
+Obtain one independent read-only Codex review of the Marvell pre-Associate/BSS
+sequence and select one bounded H26 discriminator. Then implement, verify,
+package, and write the next Surface stick. Preserve no response read before a
+current completion, no same-boot retry, no network grant, and secret-free RECLOG.
 
 ## Recently (exactly 3, newest first)
 
-### 2026-07-21 — H25 Surface stick prepared
-Pinned firmware/policy, source validation, A/B, SEED_DATA, and readback are green.
+### 2026-07-21 — H25 proved post-PMK mailbox liveness
+The canary completed as expected; the remaining fault is Associate/BSS-specific.
 
 ### 2026-07-21 — `d617efd` added the post-PMK canary
 Bounded completion/timeout classification; no network grant, retry, or secret log.
 
-### 2026-07-21 — H24 hardware cleared the doorbell
-Firmware acknowledged Associate notification but produced no response or CMD_DONE.
+### 2026-07-21 — H25 Surface stick prepared
+Pinned firmware/policy, source validation, A/B, SEED_DATA, and readback were green.
