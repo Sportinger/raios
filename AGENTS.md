@@ -77,9 +77,9 @@ hooks, MCP tools, or second-opinion processes.
 
 - Orchestrator alone: lane orders, file allocation, acceptance, commits,
   pushes, reverts, rollbacks, priorities, and breakdown updates.
-- Architecture, security, or real uncertainty: obtain one fresh, independent,
-  read-only Codex opinion with a neutral prompt and no inherited lean. Record
-  material uncertainty in the ADR.
+- Architecture, security, or real uncertainty: obtain two fresh, independent,
+  read-only Codex opinions with neutral prompts and no inherited lean. Record
+  meaningful disagreement in the ADR.
 - Owner: top-level SCOPE changes, money/hardware, security stalemates, and
   anything involving secrets or credentials. Pause only the affected strand;
   keep independent lanes running.
