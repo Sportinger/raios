@@ -1,5 +1,5 @@
 #[cfg(not(test))]
-use core::{ptr, slice};
+use core::{mem::size_of, ptr, slice};
 
 #[cfg(not(test))]
 use limine::request::RsdpRequest;
@@ -28,6 +28,7 @@ const VTD_INDEX_MASK: u64 = 0x1ff;
 const VTD_STRIDE_BITS: u8 = 9;
 const VTD_PAGE_SHIFT: u8 = 12;
 const VTD_MAX_SL_AGAW: u8 = 2;
+const VTD_MAX_HOST_ADDRESS_WIDTH: u8 = 52;
 const DMA_PTE_READ: u64 = 1 << 0;
 const DMA_PTE_WRITE: u64 = 1 << 1;
 const ROOT_ENTRY_PRESENT: u64 = 1 << 0;
@@ -318,6 +319,47 @@ pub struct VtdDmaMapping {
     pub host_phys: u64,
     pub iova: u64,
     pub len: u64,
+    pub permissions: VtdDmaPermissions,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct VtdDmaGrant {
+    pub host_phys: u64,
+    pub len: u64,
+    pub permissions: VtdDmaPermissions,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct VtdDmaPermissions {
+    pub read: bool,
+    pub write: bool,
+}
+
+impl VtdDmaPermissions {
+    pub const READ_ONLY: Self = Self {
+        read: true,
+        write: false,
+    };
+    pub const READ_WRITE: Self = Self {
+        read: true,
+        write: true,
+    };
+    pub const WRITE_ONLY: Self = Self {
+        read: false,
+        write: true,
+    };
+
+    const fn valid(self) -> bool {
+        self.read || self.write
+    }
+
+    const fn permits(self, requested: Self) -> bool {
+        (!requested.read || self.read) && (!requested.write || self.write)
+    }
+
+    const fn pte_bits(self) -> u64 {
+        (if self.read { DMA_PTE_READ } else { 0 }) | (if self.write { DMA_PTE_WRITE } else { 0 })
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -326,6 +368,7 @@ pub struct VtdMappedRegion {
     pub iova: u64,
     pub len: u64,
     pub page_count: u64,
+    pub permissions: VtdDmaPermissions,
 }
 
 impl VtdMappedRegion {
@@ -334,6 +377,10 @@ impl VtdMappedRegion {
         iova: 0,
         len: 0,
         page_count: 0,
+        permissions: VtdDmaPermissions {
+            read: false,
+            write: false,
+        },
     };
 }
 
@@ -349,17 +396,30 @@ pub struct VtdSlConfig {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum VtdBuildError {
     UnsupportedAddressWidth,
+    InvalidHostAddressWidth,
     InvalidDeviceSelector,
     DomainIdZero,
+    DomainIdExceedsCapability,
+    ReservedDomainCapability,
     NoMappings,
     TooManyMappings,
     ZeroLength,
     UnalignedRegion,
     RegionAddressOverflow,
     RegionExceedsAddressWidth,
+    RegionExceedsHostAddressWidth,
     OverlappingRegion,
+    PhysicalAlias,
+    InvalidPermissions,
+    InvalidGrant,
+    GrantExceedsHostAddressWidth,
+    OutsideGrant,
+    PermissionsExceedGrant,
     TablePhysUnaligned,
     TableAddressOverflow,
+    TableExceedsHostAddressWidth,
+    OverlappingTableSpans,
+    MappingOverlapsTranslationTable,
     TableCapacityOverflow,
     TablePointerOutOfArena,
     LeafAlreadyMapped,
@@ -377,7 +437,7 @@ impl VtdRootEntry {
 }
 
 #[repr(C, align(4096))]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct VtdRootTable {
     pub entries: [VtdRootEntry; VTD_ROOT_ENTRY_COUNT],
 }
@@ -409,7 +469,7 @@ impl VtdContextEntry {
 }
 
 #[repr(C, align(4096))]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct VtdContextTable {
     pub entries: [VtdContextEntry; VTD_CONTEXT_ENTRY_COUNT],
 }
@@ -431,7 +491,7 @@ impl VtdContextTable {
 }
 
 #[repr(C, align(4096))]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct VtdPageTable {
     pub entries: [u64; VTD_PAGE_ENTRIES],
 }
@@ -452,7 +512,8 @@ impl VtdPageTable {
     }
 }
 
-#[derive(Clone, Copy)]
+#[repr(C, align(4096))]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct VtdSlTableStorage<const N: usize> {
     pub tables: [VtdPageTable; N],
     pub next_free: usize,
@@ -475,32 +536,18 @@ impl<const N: usize> VtdSlTableStorage<N> {
         self.next_free = 0;
     }
 
-    fn alloc_table(&mut self, base_phys: u64) -> Result<(usize, u64), VtdBuildError> {
-        if self.next_free >= N {
-            return Err(VtdBuildError::TableCapacityOverflow);
-        }
+    fn alloc_table_prevalidated(&mut self, base_phys: u64) -> (usize, u64) {
         let index = self.next_free;
         self.next_free += 1;
         self.tables[index].zero();
-        let offset = (index as u64)
-            .checked_mul(VTD_PAGE_SIZE)
-            .ok_or(VtdBuildError::TableAddressOverflow)?;
-        let phys = base_phys
-            .checked_add(offset)
-            .ok_or(VtdBuildError::TableAddressOverflow)?;
-        Ok((index, phys))
+        let offset = (index as u64) * VTD_PAGE_SIZE;
+        let phys = base_phys + offset;
+        (index, phys)
     }
 
-    fn index_from_phys(&self, base_phys: u64, phys: u64) -> Result<usize, VtdBuildError> {
-        if phys < base_phys || (phys & (VTD_PAGE_SIZE - 1)) != 0 {
-            return Err(VtdBuildError::TablePointerOutOfArena);
-        }
+    fn index_from_phys_prevalidated(&self, base_phys: u64, phys: u64) -> usize {
         let offset = phys - base_phys;
-        let index = (offset / VTD_PAGE_SIZE) as usize;
-        if index >= self.next_free {
-            return Err(VtdBuildError::TablePointerOutOfArena);
-        }
-        Ok(index)
+        (offset / VTD_PAGE_SIZE) as usize
     }
 }
 
@@ -561,28 +608,52 @@ pub fn sl_index_for_level(iova: u64, level: u8) -> Result<usize, VtdBuildError> 
     Ok(((iova >> shift) & VTD_INDEX_MASK) as usize)
 }
 
-pub fn dma_pte_for_page(host_phys: u64) -> Result<u64, VtdBuildError> {
+fn dma_pte_for_page(
+    host_phys: u64,
+    permissions: VtdDmaPermissions,
+    host_address_limit: u64,
+) -> Result<u64, VtdBuildError> {
     page_aligned(host_phys)?;
-    Ok((host_phys & VTD_PAGE_MASK) | DMA_PTE_READ | DMA_PTE_WRITE)
+    if !permissions.valid() {
+        return Err(VtdBuildError::InvalidPermissions);
+    }
+    if host_phys
+        .checked_add(VTD_PAGE_SIZE)
+        .ok_or(VtdBuildError::RegionAddressOverflow)?
+        > host_address_limit
+    {
+        return Err(VtdBuildError::RegionExceedsHostAddressWidth);
+    }
+    Ok(dma_pte_for_page_prevalidated(host_phys, permissions))
 }
 
-pub fn pack_root_entry(context_table_phys: u64) -> Result<VtdRootEntry, VtdBuildError> {
+const fn dma_pte_for_page_prevalidated(host_phys: u64, permissions: VtdDmaPermissions) -> u64 {
+    (host_phys & VTD_PAGE_MASK) | permissions.pte_bits()
+}
+
+fn pack_root_entry(
+    context_table_phys: u64,
+    host_address_limit: u64,
+) -> Result<VtdRootEntry, VtdBuildError> {
     table_phys_aligned(context_table_phys)?;
+    validate_table_span(context_table_phys, 1, host_address_limit)?;
     Ok(VtdRootEntry {
         lo: (context_table_phys & VTD_PAGE_MASK) | ROOT_ENTRY_PRESENT,
         hi: 0,
     })
 }
 
-pub fn pack_context_entry(
+fn pack_context_entry(
     sl_root_phys: u64,
     config: VtdSlConfig,
     domain_id: u16,
+    host_address_limit: u64,
 ) -> Result<VtdContextEntry, VtdBuildError> {
     if domain_id == 0 {
         return Err(VtdBuildError::DomainIdZero);
     }
     table_phys_aligned(sl_root_phys)?;
+    validate_table_span(sl_root_phys, 1, host_address_limit)?;
     Ok(VtdContextEntry {
         lo: (sl_root_phys & VTD_PAGE_MASK) | CONTEXT_ENTRY_PRESENT,
         hi: (config.agaw as u64) | ((domain_id as u64) << CONTEXT_DOMAIN_ID_SHIFT),
@@ -592,7 +663,9 @@ pub fn pack_context_entry(
 pub fn construct_vtd_domain_tables<const N: usize>(
     device: VtdDeviceSelector,
     mappings: &[VtdDmaMapping],
+    grants: &[VtdDmaGrant],
     cap: u64,
+    host_address_width: u8,
     domain_id: u16,
     root_table_phys: u64,
     context_table_phys: u64,
@@ -601,24 +674,34 @@ pub fn construct_vtd_domain_tables<const N: usize>(
     context_table: &mut VtdContextTable,
     sl_tables: &mut VtdSlTableStorage<N>,
 ) -> Result<VtdDomainBuildReport, VtdBuildError> {
+    let host_address_limit = host_address_limit(host_address_width)?;
     validate_device(device)?;
-    if domain_id == 0 {
-        return Err(VtdBuildError::DomainIdZero);
-    }
+    validate_domain_id(cap, domain_id)?;
     table_phys_aligned(root_table_phys)?;
     table_phys_aligned(context_table_phys)?;
     table_phys_aligned(sl_table_phys_base)?;
 
     let config = vtd_sl_config_from_cap(cap)?;
-    validate_mappings(config, mappings)?;
+    let plan = validate_mappings_and_grants(config, mappings, grants, host_address_limit)?;
+    validate_table_capacity::<N>(plan.required_table_count)?;
+    let root_span = validate_table_span(root_table_phys, 1, host_address_limit)?;
+    let context_span = validate_table_span(context_table_phys, 1, host_address_limit)?;
+    let sl_span = validate_table_span(
+        sl_table_phys_base,
+        plan.required_table_count,
+        host_address_limit,
+    )?;
+    validate_table_isolation(mappings, root_span, context_span, sl_span)?;
+    let root_entry = pack_root_entry(context_table_phys, host_address_limit)?;
+    let context_entry =
+        pack_context_entry(sl_table_phys_base, config, domain_id, host_address_limit)?;
 
     root_table.zero();
     context_table.zero();
     sl_tables.reset();
 
-    let (sl_root_index, sl_root_phys) = sl_tables.alloc_table(sl_table_phys_base)?;
+    let (sl_root_index, sl_root_phys) = sl_tables.alloc_table_prevalidated(sl_table_phys_base);
     let mut mapped_regions = [VtdMappedRegion::EMPTY; VTD_MAX_DMA_MAPPINGS];
-    let mut mapped_page_count = 0u64;
 
     let mut region_idx = 0usize;
     while region_idx < mappings.len() {
@@ -626,17 +709,16 @@ pub fn construct_vtd_domain_tables<const N: usize>(
         let pages = mapping.len / VTD_PAGE_SIZE;
         let mut page = 0u64;
         while page < pages {
-            let offset = page
-                .checked_mul(VTD_PAGE_SIZE)
-                .ok_or(VtdBuildError::RegionAddressOverflow)?;
-            map_sl_page(
+            let offset = page * VTD_PAGE_SIZE;
+            map_sl_page_prevalidated(
                 config,
                 sl_root_index,
                 sl_table_phys_base,
                 sl_tables,
                 mapping.iova + offset,
                 mapping.host_phys + offset,
-            )?;
+                mapping.permissions,
+            );
             page += 1;
         }
         mapped_regions[region_idx] = VtdMappedRegion {
@@ -644,15 +726,11 @@ pub fn construct_vtd_domain_tables<const N: usize>(
             iova: mapping.iova,
             len: mapping.len,
             page_count: pages,
+            permissions: mapping.permissions,
         };
-        mapped_page_count = mapped_page_count
-            .checked_add(pages)
-            .ok_or(VtdBuildError::RegionAddressOverflow)?;
         region_idx += 1;
     }
 
-    let root_entry = pack_root_entry(context_table_phys)?;
-    let context_entry = pack_context_entry(sl_root_phys, config, domain_id)?;
     let devfn = devfn(device);
     root_table.entries[device.bus as usize] = root_entry;
     context_table.entries[devfn as usize] = context_entry;
@@ -666,7 +744,7 @@ pub fn construct_vtd_domain_tables<const N: usize>(
         levels: config.levels,
         address_width: config.address_width,
         mapped_region_count: mappings.len(),
-        mapped_page_count,
+        mapped_page_count: plan.mapped_page_count,
         mapped_regions,
         sl_root_phys,
         root_table_phys,
@@ -684,10 +762,12 @@ pub fn construct_vtd_domain_tables<const N: usize>(
 }
 
 #[cfg(not(test))]
-pub fn build_identity_or_granted_domain(
+pub fn build_granted_domain(
     device: VtdDeviceSelector,
     mappings: &[VtdDmaMapping],
+    grants: &[VtdDmaGrant],
     cap: u64,
+    host_address_width: u8,
     domain_id: u16,
 ) -> Result<VtdDomainBuildReport, VtdBuildError> {
     let _guard = VTD_DOMAIN_TABLE_LOCK.lock();
@@ -695,21 +775,33 @@ pub fn build_identity_or_granted_domain(
         let root_ptr = ptr::addr_of_mut!(VTD_ROOT_TABLE);
         let context_ptr = ptr::addr_of_mut!(VTD_CONTEXT_TABLE);
         let sl_ptr = ptr::addr_of_mut!(VTD_SL_TABLES);
-        let root_phys = memory::virt_to_phys(root_ptr.cast_const())
-            .ok_or(VtdBuildError::StaticTablePhysUnavailable)?;
-        let context_phys = memory::virt_to_phys(context_ptr.cast_const())
-            .ok_or(VtdBuildError::StaticTablePhysUnavailable)?;
-        let sl_phys = memory::virt_to_phys(sl_ptr.cast_const())
-            .ok_or(VtdBuildError::StaticTablePhysUnavailable)?;
+        let root_span = memory::physical_span_for_virtual_range(
+            root_ptr.cast_const(),
+            size_of::<VtdRootTable>() as u64,
+        )
+        .ok_or(VtdBuildError::StaticTablePhysUnavailable)?;
+        let context_span = memory::physical_span_for_virtual_range(
+            context_ptr.cast_const(),
+            size_of::<VtdContextTable>() as u64,
+        )
+        .ok_or(VtdBuildError::StaticTablePhysUnavailable)?;
+        let sl_tables_ptr = ptr::addr_of!((*sl_ptr).tables[0]);
+        let sl_span = memory::physical_span_for_virtual_range(
+            sl_tables_ptr,
+            (VTD_SL_TABLE_PAGE_COUNT as u64) * VTD_PAGE_SIZE,
+        )
+        .ok_or(VtdBuildError::StaticTablePhysUnavailable)?;
 
         construct_vtd_domain_tables(
             device,
             mappings,
+            grants,
             cap,
+            host_address_width,
             domain_id,
-            root_phys,
-            context_phys,
-            sl_phys,
+            root_span.start(),
+            context_span.start(),
+            sl_span.start(),
             &mut *root_ptr,
             &mut *context_ptr,
             &mut *sl_ptr,
@@ -724,7 +816,33 @@ fn validate_device(device: VtdDeviceSelector) -> Result<(), VtdBuildError> {
     Ok(())
 }
 
-fn validate_mappings(config: VtdSlConfig, mappings: &[VtdDmaMapping]) -> Result<(), VtdBuildError> {
+fn validate_domain_id(cap: u64, domain_id: u16) -> Result<(), VtdBuildError> {
+    let nd = (cap & 0x7) as u8;
+    if nd == 7 {
+        return Err(VtdBuildError::ReservedDomainCapability);
+    }
+    if domain_id == 0 {
+        return Err(VtdBuildError::DomainIdZero);
+    }
+    let domain_bits = 4 + 2 * nd;
+    if domain_bits < 16 && domain_id >= (1u16 << domain_bits) {
+        return Err(VtdBuildError::DomainIdExceedsCapability);
+    }
+    Ok(())
+}
+
+#[derive(Clone, Copy)]
+struct VtdBuildPlan {
+    mapped_page_count: u64,
+    required_table_count: usize,
+}
+
+fn validate_mappings_and_grants(
+    config: VtdSlConfig,
+    mappings: &[VtdDmaMapping],
+    grants: &[VtdDmaGrant],
+    host_address_limit: u64,
+) -> Result<VtdBuildPlan, VtdBuildError> {
     if mappings.is_empty() {
         return Err(VtdBuildError::NoMappings);
     }
@@ -732,9 +850,16 @@ fn validate_mappings(config: VtdSlConfig, mappings: &[VtdDmaMapping]) -> Result<
         return Err(VtdBuildError::TooManyMappings);
     }
 
+    validate_grants(grants, host_address_limit)?;
+
+    let mut mapped_page_count = 0u64;
     let mut idx = 0usize;
     while idx < mappings.len() {
-        validate_mapping(config, mappings[idx])?;
+        validate_mapping(config, mappings[idx], host_address_limit)?;
+        validate_mapping_grant(mappings[idx], grants)?;
+        mapped_page_count = mapped_page_count
+            .checked_add(mappings[idx].len / VTD_PAGE_SIZE)
+            .ok_or(VtdBuildError::RegionAddressOverflow)?;
         let mut other = idx + 1;
         while other < mappings.len() {
             if ranges_overlap(
@@ -745,30 +870,227 @@ fn validate_mappings(config: VtdSlConfig, mappings: &[VtdDmaMapping]) -> Result<
             )? {
                 return Err(VtdBuildError::OverlappingRegion);
             }
+            if ranges_overlap(
+                mappings[idx].host_phys,
+                mappings[idx].len,
+                mappings[other].host_phys,
+                mappings[other].len,
+            )? {
+                return Err(VtdBuildError::PhysicalAlias);
+            }
             other += 1;
         }
         idx += 1;
     }
-    Ok(())
+
+    Ok(VtdBuildPlan {
+        mapped_page_count,
+        required_table_count: required_sl_table_count(config, mappings)?,
+    })
 }
 
-fn validate_mapping(config: VtdSlConfig, mapping: VtdDmaMapping) -> Result<(), VtdBuildError> {
+fn validate_mapping(
+    config: VtdSlConfig,
+    mapping: VtdDmaMapping,
+    host_address_limit: u64,
+) -> Result<(), VtdBuildError> {
     if mapping.len == 0 {
         return Err(VtdBuildError::ZeroLength);
     }
     page_aligned(mapping.host_phys)?;
     page_aligned(mapping.iova)?;
     page_aligned(mapping.len)?;
+    if !mapping.permissions.valid() {
+        return Err(VtdBuildError::InvalidPermissions);
+    }
     let iova_end = mapping
         .iova
         .checked_add(mapping.len)
         .ok_or(VtdBuildError::RegionAddressOverflow)?;
-    mapping
+    let host_phys_end = mapping
         .host_phys
         .checked_add(mapping.len)
         .ok_or(VtdBuildError::RegionAddressOverflow)?;
     if iova_end > address_limit(config.address_width) {
         return Err(VtdBuildError::RegionExceedsAddressWidth);
+    }
+    if host_phys_end > host_address_limit {
+        return Err(VtdBuildError::RegionExceedsHostAddressWidth);
+    }
+    Ok(())
+}
+
+fn validate_grants(grants: &[VtdDmaGrant], host_address_limit: u64) -> Result<(), VtdBuildError> {
+    let mut idx = 0usize;
+    while idx < grants.len() {
+        let grant = grants[idx];
+        if grant.len == 0 || !grant.permissions.valid() {
+            return Err(VtdBuildError::InvalidGrant);
+        }
+        if page_aligned(grant.host_phys).is_err() || page_aligned(grant.len).is_err() {
+            return Err(VtdBuildError::InvalidGrant);
+        }
+        let grant_end = grant
+            .host_phys
+            .checked_add(grant.len)
+            .ok_or(VtdBuildError::InvalidGrant)?;
+        if grant_end > host_address_limit {
+            return Err(VtdBuildError::GrantExceedsHostAddressWidth);
+        }
+        idx += 1;
+    }
+    Ok(())
+}
+
+fn validate_mapping_grant(
+    mapping: VtdDmaMapping,
+    grants: &[VtdDmaGrant],
+) -> Result<(), VtdBuildError> {
+    let mapping_end = mapping.host_phys + mapping.len;
+    let mut inside_grant = false;
+    let mut idx = 0usize;
+    while idx < grants.len() {
+        let grant = grants[idx];
+        let grant_end = grant.host_phys + grant.len;
+        if mapping.host_phys >= grant.host_phys && mapping_end <= grant_end {
+            inside_grant = true;
+            if grant.permissions.permits(mapping.permissions) {
+                return Ok(());
+            }
+        }
+        idx += 1;
+    }
+    if inside_grant {
+        Err(VtdBuildError::PermissionsExceedGrant)
+    } else {
+        Err(VtdBuildError::OutsideGrant)
+    }
+}
+
+fn required_sl_table_count(
+    config: VtdSlConfig,
+    mappings: &[VtdDmaMapping],
+) -> Result<usize, VtdBuildError> {
+    let mut required = 1usize;
+    let mut child_level = 1u8;
+    while child_level < config.levels {
+        let shift = VTD_PAGE_SHIFT + child_level * VTD_STRIDE_BITS;
+        let prefix_count = unique_mapping_prefix_count(mappings, shift)?;
+        if prefix_count > usize::MAX as u64 {
+            return Err(VtdBuildError::TableCapacityOverflow);
+        }
+        required = required
+            .checked_add(prefix_count as usize)
+            .ok_or(VtdBuildError::TableCapacityOverflow)?;
+        child_level += 1;
+    }
+    Ok(required)
+}
+
+fn unique_mapping_prefix_count(
+    mappings: &[VtdDmaMapping],
+    shift: u8,
+) -> Result<u64, VtdBuildError> {
+    let mut intervals = [(0u64, 0u64); VTD_MAX_DMA_MAPPINGS];
+    let mut interval_count = 0usize;
+    let mut mapping_idx = 0usize;
+    while mapping_idx < mappings.len() {
+        let mapping = mappings[mapping_idx];
+        let last_iova = mapping.iova + mapping.len - 1;
+        let interval = (mapping.iova >> shift, (last_iova >> shift) + 1);
+        let mut insert_at = interval_count;
+        while insert_at > 0 && intervals[insert_at - 1].0 > interval.0 {
+            intervals[insert_at] = intervals[insert_at - 1];
+            insert_at -= 1;
+        }
+        intervals[insert_at] = interval;
+        interval_count += 1;
+        mapping_idx += 1;
+    }
+
+    let mut total = 0u64;
+    let mut current_start = intervals[0].0;
+    let mut current_end = intervals[0].1;
+    let mut idx = 1usize;
+    while idx < interval_count {
+        let (start, end) = intervals[idx];
+        if start > current_end {
+            total = total
+                .checked_add(current_end - current_start)
+                .ok_or(VtdBuildError::TableCapacityOverflow)?;
+            current_start = start;
+            current_end = end;
+        } else if end > current_end {
+            current_end = end;
+        }
+        idx += 1;
+    }
+    total
+        .checked_add(current_end - current_start)
+        .ok_or(VtdBuildError::TableCapacityOverflow)
+}
+
+fn validate_table_capacity<const N: usize>(
+    required_table_count: usize,
+) -> Result<(), VtdBuildError> {
+    if required_table_count > N {
+        return Err(VtdBuildError::TableCapacityOverflow);
+    }
+    Ok(())
+}
+
+#[derive(Clone, Copy)]
+struct VtdPhysicalSpan {
+    start: u64,
+    end_exclusive: u64,
+}
+
+impl VtdPhysicalSpan {
+    const fn overlaps(self, other: Self) -> bool {
+        self.start < other.end_exclusive && other.start < self.end_exclusive
+    }
+}
+
+fn validate_table_span(
+    table_phys_base: u64,
+    table_count: usize,
+    host_address_limit: u64,
+) -> Result<VtdPhysicalSpan, VtdBuildError> {
+    let span_len = (table_count as u64)
+        .checked_mul(VTD_PAGE_SIZE)
+        .ok_or(VtdBuildError::TableAddressOverflow)?;
+    let table_end = table_phys_base
+        .checked_add(span_len)
+        .ok_or(VtdBuildError::TableAddressOverflow)?;
+    if table_end > host_address_limit {
+        return Err(VtdBuildError::TableExceedsHostAddressWidth);
+    }
+    Ok(VtdPhysicalSpan {
+        start: table_phys_base,
+        end_exclusive: table_end,
+    })
+}
+
+fn validate_table_isolation(
+    mappings: &[VtdDmaMapping],
+    root: VtdPhysicalSpan,
+    context: VtdPhysicalSpan,
+    sl: VtdPhysicalSpan,
+) -> Result<(), VtdBuildError> {
+    if root.overlaps(context) || root.overlaps(sl) || context.overlaps(sl) {
+        return Err(VtdBuildError::OverlappingTableSpans);
+    }
+    let mut idx = 0usize;
+    while idx < mappings.len() {
+        let mapping = mappings[idx];
+        let mapped = VtdPhysicalSpan {
+            start: mapping.host_phys,
+            end_exclusive: mapping.host_phys + mapping.len,
+        };
+        if mapped.overlaps(root) || mapped.overlaps(context) || mapped.overlaps(sl) {
+            return Err(VtdBuildError::MappingOverlapsTranslationTable);
+        }
+        idx += 1;
     }
     Ok(())
 }
@@ -788,36 +1110,36 @@ fn ranges_overlap(
     Ok(a_start < b_end && b_start < a_end)
 }
 
-fn map_sl_page<const N: usize>(
+fn map_sl_page_prevalidated<const N: usize>(
     config: VtdSlConfig,
     sl_root_index: usize,
     sl_table_phys_base: u64,
     sl_tables: &mut VtdSlTableStorage<N>,
     iova: u64,
     host_phys: u64,
-) -> Result<(), VtdBuildError> {
+    permissions: VtdDmaPermissions,
+) {
     let mut table_index = sl_root_index;
     let mut level = config.levels;
     while level > 1 {
-        let index = sl_index_for_level(iova, level)?;
+        let shift = VTD_PAGE_SHIFT + (level - 1) * VTD_STRIDE_BITS;
+        let index = ((iova >> shift) & VTD_INDEX_MASK) as usize;
         let entry = sl_tables.tables[table_index].entries[index];
-        if entry & DMA_PTE_READ == 0 {
-            let (next_index, next_phys) = sl_tables.alloc_table(sl_table_phys_base)?;
-            sl_tables.tables[table_index].entries[index] = dma_pte_for_page(next_phys)?;
+        if entry & (DMA_PTE_READ | DMA_PTE_WRITE) == 0 {
+            let (next_index, next_phys) = sl_tables.alloc_table_prevalidated(sl_table_phys_base);
+            sl_tables.tables[table_index].entries[index] =
+                dma_pte_for_page_prevalidated(next_phys, VtdDmaPermissions::READ_WRITE);
             table_index = next_index;
         } else {
             let next_phys = entry & VTD_PAGE_MASK;
-            table_index = sl_tables.index_from_phys(sl_table_phys_base, next_phys)?;
+            table_index = sl_tables.index_from_phys_prevalidated(sl_table_phys_base, next_phys);
         }
         level -= 1;
     }
 
-    let leaf_index = sl_index_for_level(iova, 1)?;
-    if sl_tables.tables[table_index].entries[leaf_index] & DMA_PTE_READ != 0 {
-        return Err(VtdBuildError::LeafAlreadyMapped);
-    }
-    sl_tables.tables[table_index].entries[leaf_index] = dma_pte_for_page(host_phys)?;
-    Ok(())
+    let leaf_index = ((iova >> VTD_PAGE_SHIFT) & VTD_INDEX_MASK) as usize;
+    sl_tables.tables[table_index].entries[leaf_index] =
+        dma_pte_for_page_prevalidated(host_phys, permissions);
 }
 
 fn page_aligned(value: u64) -> Result<(), VtdBuildError> {
@@ -840,6 +1162,13 @@ fn address_limit(width: u8) -> u64 {
     } else {
         1u64 << width
     }
+}
+
+fn host_address_limit(width: u8) -> Result<u64, VtdBuildError> {
+    if width < VTD_PAGE_SHIFT || width > VTD_MAX_HOST_ADDRESS_WIDTH {
+        return Err(VtdBuildError::InvalidHostAddressWidth);
+    }
+    Ok(1u64 << width)
 }
 
 const fn agaw_to_width(agaw: u8) -> u8 {
@@ -1121,6 +1450,7 @@ mod tests {
     const ROOT_PHYS: u64 = 0x1000_0000;
     const CONTEXT_PHYS: u64 = 0x1000_1000;
     const SL_PHYS: u64 = 0x1000_2000;
+    const HOST_ADDRESS_WIDTH: u8 = 52;
     const TEST_DOMAIN_ID: u16 = 7;
 
     #[test]
@@ -1156,11 +1486,59 @@ mod tests {
     }
 
     #[test]
-    fn dma_pte_sets_read_write_and_present_bits() {
-        assert_eq!(dma_pte_for_page(0x1234_5000), Ok(0x1234_5003));
+    fn cap_nd_bounds_domain_ids_before_mutation() {
+        let mapping = [test_mapping(0x2000_0000)];
+        assert_eq!(validate_domain_id(cap_with_nd(0), 15), Ok(()));
+        assert_eq!(validate_domain_id(cap_with_nd(6), u16::MAX), Ok(()));
+        let mut config = test_build_config();
+        config.cap = cap_with_nd(0);
+        config.domain_id = 16;
+        assert_build_error_without_effect::<8>(
+            &mapping,
+            &grant_all(),
+            config,
+            VtdBuildError::DomainIdExceedsCapability,
+        );
+        config.cap = cap_with_nd(7);
+        config.domain_id = TEST_DOMAIN_ID;
+        assert_build_error_without_effect::<8>(
+            &mapping,
+            &grant_all(),
+            config,
+            VtdBuildError::ReservedDomainCapability,
+        );
+    }
+
+    #[test]
+    fn dma_pte_and_grant_permissions_include_write_only() {
+        let limit = 1u64 << HOST_ADDRESS_WIDTH;
         assert_eq!(
-            dma_pte_for_page(0x1234_5001),
+            dma_pte_for_page(0x1234_5000, VtdDmaPermissions::READ_ONLY, limit),
+            Ok(0x1234_5001)
+        );
+        assert_eq!(
+            dma_pte_for_page(0x1234_5000, VtdDmaPermissions::READ_WRITE, limit),
+            Ok(0x1234_5003)
+        );
+        assert_eq!(
+            dma_pte_for_page(0x1234_5000, VtdDmaPermissions::WRITE_ONLY, limit),
+            Ok(0x1234_5002)
+        );
+        assert_eq!(
+            dma_pte_for_page(0x1234_5001, VtdDmaPermissions::READ_WRITE, limit),
             Err(VtdBuildError::UnalignedRegion)
+        );
+        assert_eq!(
+            dma_pte_for_page(limit, VtdDmaPermissions::READ_WRITE, limit),
+            Err(VtdBuildError::RegionExceedsHostAddressWidth)
+        );
+        assert_eq!(
+            pack_root_entry(limit, limit),
+            Err(VtdBuildError::TableExceedsHostAddressWidth)
+        );
+        assert_eq!(
+            pack_context_entry(limit, vtd_sl_config_from_cap(cap_48()).unwrap(), 1, limit),
+            Err(VtdBuildError::TableExceedsHostAddressWidth)
         );
     }
 
@@ -1168,17 +1546,20 @@ mod tests {
     fn maps_single_4k_region() {
         let mut root = VtdRootTable::empty();
         let mut context = VtdContextTable::empty();
-        let mut sl = VtdSlTableStorage::<8>::empty();
+        let mut sl = VtdSlTableStorage::<4>::empty();
         let mapping = [VtdDmaMapping {
             host_phys: 0x2000_0000,
             iova: 0x0000_8123_4567_8000,
             len: VTD_PAGE_SIZE,
+            permissions: VtdDmaPermissions::READ_WRITE,
         }];
 
         let report = construct_vtd_domain_tables(
             device(),
             &mapping,
+            &grant_all(),
             cap_48(),
+            HOST_ADDRESS_WIDTH,
             TEST_DOMAIN_ID,
             ROOT_PHYS,
             CONTEXT_PHYS,
@@ -1203,17 +1584,20 @@ mod tests {
     fn maps_multi_page_region() {
         let mut root = VtdRootTable::empty();
         let mut context = VtdContextTable::empty();
-        let mut sl = VtdSlTableStorage::<8>::empty();
+        let mut sl = VtdSlTableStorage::<4>::empty();
         let mapping = [VtdDmaMapping {
             host_phys: 0x3000_0000,
             iova: 0x4000_0000,
             len: VTD_PAGE_SIZE * 3,
+            permissions: VtdDmaPermissions::READ_WRITE,
         }];
 
         let report = construct_vtd_domain_tables(
             device(),
             &mapping,
+            &grant_all(),
             cap_48(),
+            HOST_ADDRESS_WIDTH,
             TEST_DOMAIN_ID,
             ROOT_PHYS,
             CONTEXT_PHYS,
@@ -1225,6 +1609,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(report.mapped_page_count, 3);
+        assert_eq!(sl.next_free, 4);
         assert_eq!(leaf_pte(&sl, SL_PHYS, 0, report, 0x4000_0000), 0x3000_0003);
         assert_eq!(leaf_pte(&sl, SL_PHYS, 0, report, 0x4000_1000), 0x3000_1003);
         assert_eq!(leaf_pte(&sl, SL_PHYS, 0, report, 0x4000_2000), 0x3000_2003);
@@ -1236,6 +1621,7 @@ mod tests {
             host_phys: 0x2000_0001,
             iova: 0x4000_0000,
             len: VTD_PAGE_SIZE,
+            permissions: VtdDmaPermissions::READ_WRITE,
         }];
         assert_eq!(
             construct_with_mappings(&unaligned),
@@ -1247,11 +1633,13 @@ mod tests {
                 host_phys: 0x2000_0000,
                 iova: 0x4000_0000,
                 len: VTD_PAGE_SIZE * 2,
+                permissions: VtdDmaPermissions::READ_WRITE,
             },
             VtdDmaMapping {
                 host_phys: 0x2000_2000,
                 iova: 0x4000_1000,
                 len: VTD_PAGE_SIZE,
+                permissions: VtdDmaPermissions::READ_WRITE,
             },
         ];
         assert_eq!(
@@ -1263,6 +1651,7 @@ mod tests {
             host_phys: 0x2000_0000,
             iova: 1u64 << 48,
             len: VTD_PAGE_SIZE,
+            permissions: VtdDmaPermissions::READ_WRITE,
         }];
         assert_eq!(
             construct_with_mappings(&oversized),
@@ -1271,21 +1660,102 @@ mod tests {
     }
 
     #[test]
-    fn rejects_table_capacity_overflow() {
+    fn rejects_invalid_host_address_widths_without_effect() {
+        let mapping = [test_mapping(0x2000_0000)];
+        assert_eq!(host_address_limit(12), Ok(VTD_PAGE_SIZE));
+        assert_eq!(host_address_limit(52), Ok(1u64 << 52));
+        let mut config = test_build_config();
+        for width in [11, 53] {
+            config.width = width;
+            assert_build_error_without_effect::<8>(
+                &mapping,
+                &grant_all(),
+                config,
+                VtdBuildError::InvalidHostAddressWidth,
+            );
+        }
+    }
+
+    #[test]
+    fn host_address_width_failure_without_effect() {
+        const WIDTH: u8 = 32;
+        const LIMIT: u64 = 1u64 << WIDTH;
+
+        let outside_mapping = [test_mapping(LIMIT)];
+        let mut config = test_build_config();
+        config.width = WIDTH;
+        assert_build_error_without_effect::<8>(
+            &outside_mapping,
+            &grant_all(),
+            config,
+            VtdBuildError::RegionExceedsHostAddressWidth,
+        );
+
+        let outside_grant = [VtdDmaGrant {
+            host_phys: LIMIT,
+            len: VTD_PAGE_SIZE,
+            permissions: VtdDmaPermissions::READ_WRITE,
+        }];
+        let inside_mapping = [test_mapping(0x2000_0000)];
+        assert_build_error_without_effect::<8>(
+            &inside_mapping,
+            &outside_grant,
+            config,
+            VtdBuildError::GrantExceedsHostAddressWidth,
+        );
+
+        config.sl_phys = LIMIT - 3 * VTD_PAGE_SIZE;
+        assert_build_error_without_effect::<8>(
+            &inside_mapping,
+            &grant_all(),
+            config,
+            VtdBuildError::TableExceedsHostAddressWidth,
+        );
+    }
+
+    #[test]
+    fn host_address_width_page_boundary() {
+        const WIDTH: u8 = 32;
+        const LIMIT: u64 = 1u64 << WIDTH;
+        let last_page = LIMIT - VTD_PAGE_SIZE;
+        let mut mapping = [test_mapping(last_page)];
+        let grant = [VtdDmaGrant {
+            host_phys: last_page,
+            len: VTD_PAGE_SIZE,
+            permissions: VtdDmaPermissions::READ_WRITE,
+        }];
         let mut root = VtdRootTable::empty();
         let mut context = VtdContextTable::empty();
-        let mut sl = VtdSlTableStorage::<1>::empty();
-        let mapping = [VtdDmaMapping {
-            host_phys: 0x2000_0000,
-            iova: 0x4000_0000,
-            len: VTD_PAGE_SIZE,
-        }];
+        let mut sl = VtdSlTableStorage::<8>::empty();
 
+        let report = construct_vtd_domain_tables(
+            device(),
+            &mapping,
+            &grant,
+            cap_48(),
+            WIDTH,
+            TEST_DOMAIN_ID,
+            ROOT_PHYS,
+            CONTEXT_PHYS,
+            SL_PHYS,
+            &mut root,
+            &mut context,
+            &mut sl,
+        )
+        .unwrap();
+        assert_eq!(
+            leaf_pte(&sl, SL_PHYS, 0, report, mapping[0].iova),
+            last_page | 3
+        );
+
+        mapping[0].host_phys = LIMIT;
         assert_eq!(
             construct_vtd_domain_tables(
                 device(),
                 &mapping,
+                &grant,
                 cap_48(),
+                WIDTH,
                 TEST_DOMAIN_ID,
                 ROOT_PHYS,
                 CONTEXT_PHYS,
@@ -1294,26 +1764,147 @@ mod tests {
                 &mut context,
                 &mut sl,
             ),
-            Err(VtdBuildError::TableCapacityOverflow)
+            Err(VtdBuildError::RegionExceedsHostAddressWidth)
         );
     }
 
     #[test]
-    fn packs_root_and_context_entry_fields() {
-        let mut root = VtdRootTable::empty();
-        let mut context = VtdContextTable::empty();
-        let mut sl = VtdSlTableStorage::<8>::empty();
+    fn capacity_failure_without_effect() {
+        assert_default_build_error::<1>(
+            &[test_mapping(0x2000_0000)],
+            VtdBuildError::TableCapacityOverflow,
+        );
+    }
+
+    #[test]
+    fn table_roles_and_mapping_frames_are_isolated_without_effect() {
+        let mut mapping = [test_mapping(0x2000_0000)];
+        assert_build_error_without_effect::<8>(
+            &mapping,
+            &grant_all(),
+            TestBuildConfig {
+                context_phys: ROOT_PHYS,
+                ..test_build_config()
+            },
+            VtdBuildError::OverlappingTableSpans,
+        );
+        for table_page in [ROOT_PHYS, CONTEXT_PHYS, SL_PHYS + 3 * VTD_PAGE_SIZE] {
+            mapping[0].host_phys = table_page;
+            assert_default_build_error::<8>(
+                &mapping,
+                VtdBuildError::MappingOverlapsTranslationTable,
+            );
+        }
+    }
+
+    #[test]
+    fn physical_alias_without_effect() {
+        let mappings = [
+            VtdDmaMapping {
+                host_phys: 0x2000_0000,
+                iova: 0x4000_0000,
+                len: VTD_PAGE_SIZE,
+                permissions: VtdDmaPermissions::READ_ONLY,
+            },
+            VtdDmaMapping {
+                host_phys: 0x2000_0000,
+                iova: 0x5000_0000,
+                len: VTD_PAGE_SIZE,
+                permissions: VtdDmaPermissions::READ_ONLY,
+            },
+        ];
+
+        assert_default_build_error::<8>(&mappings, VtdBuildError::PhysicalAlias);
+    }
+
+    #[test]
+    fn outside_grant_without_effect() {
+        let mapping = [test_mapping(0x3000_1000)];
+        let grant = [VtdDmaGrant {
+            host_phys: 0x3000_0000,
+            len: VTD_PAGE_SIZE,
+            permissions: VtdDmaPermissions::READ_WRITE,
+        }];
+
+        assert_build_error_without_effect::<8>(
+            &mapping,
+            &grant,
+            test_build_config(),
+            VtdBuildError::OutsideGrant,
+        );
+    }
+
+    #[test]
+    fn write_permission_escape_without_effect() {
         let mapping = [VtdDmaMapping {
             host_phys: 0x2000_0000,
             iova: 0x4000_0000,
             len: VTD_PAGE_SIZE,
+            permissions: VtdDmaPermissions::WRITE_ONLY,
         }];
+        let grant = [VtdDmaGrant {
+            host_phys: 0x2000_0000,
+            len: VTD_PAGE_SIZE,
+            permissions: VtdDmaPermissions::READ_ONLY,
+        }];
+
+        assert_build_error_without_effect::<8>(
+            &mapping,
+            &grant,
+            test_build_config(),
+            VtdBuildError::PermissionsExceedGrant,
+        );
+        assert_eq!(
+            validate_mapping_grant(
+                mapping[0],
+                &[VtdDmaGrant {
+                    permissions: VtdDmaPermissions::WRITE_ONLY,
+                    ..grant[0]
+                }],
+            ),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn granted_permissions_map_only_one_bdf_context() {
+        let mut root = VtdRootTable::empty();
+        let mut context = VtdContextTable::empty();
+        let mut sl = VtdSlTableStorage::<8>::empty();
+        let mappings = [
+            VtdDmaMapping {
+                host_phys: 0x2000_0000,
+                iova: 0x4000_0000,
+                len: VTD_PAGE_SIZE,
+                permissions: VtdDmaPermissions::READ_ONLY,
+            },
+            VtdDmaMapping {
+                host_phys: 0x3000_0000,
+                iova: 0x4000_1000,
+                len: VTD_PAGE_SIZE,
+                permissions: VtdDmaPermissions::READ_WRITE,
+            },
+        ];
+        let grants = [
+            VtdDmaGrant {
+                host_phys: 0x2000_0000,
+                len: VTD_PAGE_SIZE,
+                permissions: VtdDmaPermissions::READ_ONLY,
+            },
+            VtdDmaGrant {
+                host_phys: 0x3000_0000,
+                len: VTD_PAGE_SIZE,
+                permissions: VtdDmaPermissions::READ_WRITE,
+            },
+        ];
         let dev = device();
 
         let report = construct_vtd_domain_tables(
             dev,
-            &mapping,
+            &mappings,
+            &grants,
             cap_48(),
+            HOST_ADDRESS_WIDTH,
             TEST_DOMAIN_ID,
             ROOT_PHYS,
             CONTEXT_PHYS,
@@ -1326,14 +1917,27 @@ mod tests {
 
         let devfn = ((dev.device << 3) | dev.function) as usize;
         assert_eq!(root.entries[dev.bus as usize].lo, CONTEXT_PHYS | 1);
-        assert_eq!(root.entries[dev.bus as usize].hi, 0);
         assert_eq!(context.entries[devfn].lo, SL_PHYS | 1);
         assert_eq!(
             context.entries[devfn].hi,
             2 | ((TEST_DOMAIN_ID as u64) << CONTEXT_DOMAIN_ID_SHIFT)
         );
-        assert_eq!(report.root_entry_lo, CONTEXT_PHYS | 1);
-        assert_eq!(report.context_entry_lo, SL_PHYS | 1);
+        assert_eq!(
+            leaf_pte(&sl, SL_PHYS, 0, report, mappings[0].iova),
+            0x2000_0001
+        );
+        assert_eq!(
+            leaf_pte(&sl, SL_PHYS, 0, report, mappings[1].iova),
+            0x3000_0003
+        );
+        assert_eq!(
+            context
+                .entries
+                .iter()
+                .filter(|entry| entry.lo != 0 || entry.hi != 0)
+                .count(),
+            1
+        );
         assert!(!report.installed);
         assert!(!report.translation_enabled);
         assert!(!report.remapping_enabled);
@@ -1401,7 +2005,9 @@ mod tests {
         construct_vtd_domain_tables(
             device(),
             mappings,
+            &grant_all(),
             cap_48(),
+            HOST_ADDRESS_WIDTH,
             TEST_DOMAIN_ID,
             ROOT_PHYS,
             CONTEXT_PHYS,
@@ -1430,12 +2036,99 @@ mod tests {
         let mut level = config.levels;
         while level > 1 {
             let entry = sl.tables[table_index].entries[sl_index_for_level(iova, level).unwrap()];
-            table_index = sl
-                .index_from_phys(base_phys, entry & VTD_PAGE_MASK)
-                .unwrap();
+            table_index = sl.index_from_phys_prevalidated(base_phys, entry & VTD_PAGE_MASK);
             level -= 1;
         }
         sl.tables[table_index].entries[sl_index_for_level(iova, 1).unwrap()]
+    }
+
+    fn grant_all() -> [VtdDmaGrant; 1] {
+        [VtdDmaGrant {
+            host_phys: 0x1000_0000,
+            len: 0x4000_0000,
+            permissions: VtdDmaPermissions::READ_WRITE,
+        }]
+    }
+
+    fn test_mapping(host_phys: u64) -> VtdDmaMapping {
+        VtdDmaMapping {
+            host_phys,
+            iova: 0x4000_0000,
+            len: VTD_PAGE_SIZE,
+            permissions: VtdDmaPermissions::READ_WRITE,
+        }
+    }
+
+    #[derive(Clone, Copy)]
+    struct TestBuildConfig {
+        cap: u64,
+        width: u8,
+        domain_id: u16,
+        root_phys: u64,
+        context_phys: u64,
+        sl_phys: u64,
+    }
+
+    fn test_build_config() -> TestBuildConfig {
+        TestBuildConfig {
+            cap: cap_48(),
+            width: HOST_ADDRESS_WIDTH,
+            domain_id: TEST_DOMAIN_ID,
+            root_phys: ROOT_PHYS,
+            context_phys: CONTEXT_PHYS,
+            sl_phys: SL_PHYS,
+        }
+    }
+
+    fn assert_default_build_error<const N: usize>(
+        mappings: &[VtdDmaMapping],
+        expected: VtdBuildError,
+    ) {
+        assert_build_error_without_effect::<N>(
+            mappings,
+            &grant_all(),
+            test_build_config(),
+            expected,
+        )
+    }
+
+    fn assert_build_error_without_effect<const N: usize>(
+        mappings: &[VtdDmaMapping],
+        grants: &[VtdDmaGrant],
+        config: TestBuildConfig,
+        expected: VtdBuildError,
+    ) {
+        let (mut root, mut context, mut sl) = dirty_outputs::<N>();
+        let before = (root, context, sl);
+        assert_eq!(
+            construct_vtd_domain_tables(
+                device(),
+                mappings,
+                grants,
+                config.cap,
+                config.width,
+                config.domain_id,
+                config.root_phys,
+                config.context_phys,
+                config.sl_phys,
+                &mut root,
+                &mut context,
+                &mut sl,
+            ),
+            Err(expected)
+        );
+        assert_eq!((root, context, sl), before);
+    }
+
+    fn dirty_outputs<const N: usize>() -> (VtdRootTable, VtdContextTable, VtdSlTableStorage<N>) {
+        let mut root = VtdRootTable::empty();
+        let mut context = VtdContextTable::empty();
+        let mut sl = VtdSlTableStorage::<N>::empty();
+        root.entries[7].lo = 0xaaaa_0001;
+        context.entries[9].hi = 0xdddd_0004;
+        sl.tables[0].entries[11] = 0xeeee_0003;
+        sl.next_free = 1;
+        (root, context, sl)
     }
 
     fn device() -> VtdDeviceSelector {
@@ -1449,6 +2142,10 @@ mod tests {
 
     fn cap_48() -> u64 {
         cap_with_sagaw(1 << 2, 48)
+    }
+
+    fn cap_with_nd(nd: u8) -> u64 {
+        cap_48() | nd as u64
     }
 
     fn cap_with_sagaw(sagaw: u8, mgaw: u8) -> u64 {
