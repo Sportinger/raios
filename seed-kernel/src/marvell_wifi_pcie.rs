@@ -309,6 +309,74 @@ struct ConnectDmaBlock {
     rsp: [u8; MWIFIEX_UPLD_SIZE],
 }
 
+// Stable MarvellConnectionTimeoutFingerprint payload (v1):
+// bits 31..25 = 0x53 format tag, 24..22 = ConnectionStage, 21..14 = exact
+// expected Connection HostCmd ID, 13..4 = exact published command length,
+// bit 3 = fixed 12-byte request header matched, bit 2 = terminal quiesce plus
+// mailbox cleanup verified, and bits 1..0 = response class. Connection command
+// IDs fit eight bits and the dedicated command buffer bounds lengths to 512,
+// so neither field is truncated. No address, header word, payload, target, or
+// credential is encoded.
+const CONNECTION_TIMEOUT_FINGERPRINT_TAG: u32 = 0x53;
+const CONNECTION_TIMEOUT_FINGERPRINT_TAG_SHIFT: u32 = 25;
+const CONNECTION_TIMEOUT_STAGE_SHIFT: u32 = 22;
+const CONNECTION_TIMEOUT_COMMAND_SHIFT: u32 = 14;
+const CONNECTION_TIMEOUT_COMMAND_LEN_SHIFT: u32 = 4;
+const CONNECTION_TIMEOUT_REQUEST_HEADER_MATCH: u32 = 1 << 3;
+const CONNECTION_TIMEOUT_CLEANUP_VERIFIED: u32 = 1 << 2;
+
+fn queue_connection_timeout_trace(
+    job: &ConnectionJob,
+    host_int_status: u32,
+    cleanup_verified: bool,
+    response_class: ConnectionTimeoutResponseClass,
+) {
+    let phase = if job.phase == ConnectionStage::Associate {
+        HwFailurePhase::Associate
+    } else {
+        HwFailurePhase::Authenticate
+    };
+    let expected_command = connection_phase_command(job.phase).unwrap_or(0);
+    let fingerprint = connection_timeout_fingerprint(
+        job.phase,
+        expected_command,
+        job.published_command_len,
+        job.request_header_matches_expected,
+        cleanup_verified,
+        response_class,
+    );
+    let boot_ms = (time::rdtsc() / time::tsc_per_ms().max(1)).min(u64::from(u32::MAX)) as u32;
+    let mut trace = HwFailureTrace::new(
+        SEED_KERNEL_BUILD_ID_V0_1_0,
+        HwFailureSubsystem::MarvellWifiPcie,
+    );
+    if trace
+        .push_step(HwFailureTraceStep {
+            boot_ms,
+            phase,
+            status: HwFailureStatus::Timeout,
+            register: HwFailureRegister::MarvellHostInterruptStatus,
+            register_value: host_int_status,
+        })
+        .is_err()
+    {
+        return;
+    }
+    if trace
+        .push_step(HwFailureTraceStep {
+            boot_ms,
+            phase,
+            status: HwFailureStatus::Timeout,
+            register: HwFailureRegister::MarvellConnectionTimeoutFingerprint,
+            register_value: fingerprint,
+        })
+        .is_err()
+    {
+        return;
+    }
+    let _ = usb::queue_hw_failure_trace(trace);
+}
+
 #[repr(C, packed)]
 #[derive(Clone, Copy)]
 struct EventBufDesc {
@@ -691,6 +759,15 @@ pub enum ConnectionStage {
     WaitPortRelease,
     LinkReady,
     Failed,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u8)]
+enum ConnectionTimeoutResponseClass {
+    UntouchedZero = 0,
+    ExpectedHeaderSeen = 1,
+    NonemptyMismatch = 2,
+    Unavailable = 3,
 }
 
 impl ConnectionStage {
@@ -1449,6 +1526,8 @@ struct ConnectionJob {
     phase: ConnectionStage,
     waiting: bool,
     cmd_done_low_baseline: bool,
+    published_command_len: u16,
+    request_header_matches_expected: bool,
     phase_started_tsc: u64,
     transport_diagnostic: ConnectionTransportDiagnostic,
     seq: u8,
@@ -2244,6 +2323,8 @@ fn start_association_inner(
             phase: first_phase,
             waiting: false,
             cmd_done_low_baseline: false,
+            published_command_len: 0,
+            request_header_matches_expected: false,
             phase_started_tsc: time::rdtsc(),
             transport_diagnostic: ConnectionTransportDiagnostic::new(),
             seq,
@@ -3246,6 +3327,12 @@ fn arm_connection_command(
     job.transport_diagnostic.post_clear_status_valid = true;
     job.cmd_done_low_baseline = true;
 
+    debug_assert!(command_len <= CONNECT_CMD_BUFFER_SIZE);
+    debug_assert!(command_len <= 0x03ff);
+    job.request_header_matches_expected =
+        connection_request_header_matches_expected(job, command_len);
+    job.published_command_len = command_len as u16;
+
     let publication = publish_host_command_while_gated(
         job.pci_address,
         mmio,
@@ -3342,7 +3429,14 @@ pub fn poll_connection() -> bool {
 
         if elapsed_ms(job.phase_started_tsc) >= CONNECT_CMD_TIMEOUT_MS {
             let status = read_reg(mmio, PCIE_HOST_INT_STATUS);
-            quarantine_connection_job(&job);
+            let cleanup_verified = quarantine_connection_job(&job);
+            let response_class = if cleanup_verified {
+                compiler_fence(Ordering::SeqCst);
+                connection_timeout_response_class_after_verified_cleanup(&job)
+            } else {
+                ConnectionTimeoutResponseClass::Unavailable
+            };
+            queue_connection_timeout_trace(&job, status, cleanup_verified, response_class);
             finish_connection_locked(
                 &mut runtime,
                 ConnectionResult::CommandTimeout,
@@ -3653,14 +3747,16 @@ fn finish_connection_locked(
 
 // Callers are structurally constrained to hold MARVELL_DMA_GATE before
 // acquiring CONNECTION; see the permanent integration predicate.
-fn quarantine_connection_job(job: &ConnectionJob) {
+fn quarantine_connection_job(job: &ConnectionJob) -> bool {
     DATA_LINK_READY.store(false, Ordering::Release);
     let mmio = job.mmio_base as *mut u8;
-    if terminal_quiesce_and_cleanup_while_gated(job.pci_address, mmio) {
+    let cleanup_verified = terminal_quiesce_and_cleanup_while_gated(job.pci_address, mmio);
+    if cleanup_verified {
         clear_connection_secret_dma(job);
     }
     CONNECTION_REBOOT_REQUIRED.swap(true, Ordering::AcqRel);
     compiler_fence(Ordering::SeqCst);
+    cleanup_verified
 }
 
 fn clear_connection_secret_dma(job: &ConnectionJob) {
@@ -4920,6 +5016,118 @@ fn prepare_connection_dma(job: &mut ConnectionJob) -> Result<usize, ConnectionRe
             _ => Err(ConnectionResult::CommandBuild(MarvellCmdError::BadLength)),
         }
     }
+}
+
+/// Captures one secret-free request predicate before publication. The view is
+/// exactly the six fixed protocol words (12 bytes); payload/TLV bytes are never
+/// read, copied, compared, or retained by this diagnostic.
+fn connection_request_header_matches_expected(job: &ConnectionJob, command_len: usize) -> bool {
+    if command_len < marvell_wifi_cmd::HOST_CMD_MIN_RESPONSE_LEN
+        || command_len > CONNECT_CMD_BUFFER_SIZE
+        || command_len > u16::MAX as usize
+    {
+        return false;
+    }
+    let Some(expected_command) = connection_phase_command(job.phase) else {
+        return false;
+    };
+    let Some(expected_host_size) = command_len.checked_sub(marvell_wifi_cmd::INTF_HEADER_LEN)
+    else {
+        return false;
+    };
+    let header = read_fixed_connection_header(connect_cmd_ptr());
+    header.interface_len as usize == command_len
+        && header.interface_type == marvell_wifi_cmd::MWIFIEX_TYPE_CMD
+        && header.command == expected_command
+        && header.host_command_size as usize == expected_host_size
+        && header.sequence == connection_phase_seq(job.seq, job.phase)
+        && header.result == 0
+}
+
+/// Reads only the fixed redacted response header. The sole caller invokes this
+/// after terminal_quiesce_and_cleanup_while_gated returned true; this helper is
+/// never used as completion evidence and cannot replace current-epoch CMD_DONE.
+fn connection_timeout_response_class_after_verified_cleanup(
+    job: &ConnectionJob,
+) -> ConnectionTimeoutResponseClass {
+    // Verified terminal cleanup proved BME-off and cleared the mailbox before
+    // this exact 12-byte redacted response projection is read.
+    let header = read_fixed_connection_header(connect_rsp_ptr());
+    if header.is_empty() {
+        return ConnectionTimeoutResponseClass::UntouchedZero;
+    }
+    let expected_command = connection_phase_command(job.phase);
+    let interface_len = usize::from(header.interface_len);
+    let host_command_size = usize::from(header.host_command_size);
+    if expected_command
+        .is_some_and(|command| header.command == command | marvell_wifi_cmd::HOST_CMD_RET_BIT)
+        && header.interface_type == marvell_wifi_cmd::MWIFIEX_TYPE_CMD
+        && header.sequence == connection_phase_seq(job.seq, job.phase)
+        && interface_len >= marvell_wifi_cmd::HOST_CMD_MIN_RESPONSE_LEN
+        && interface_len <= MWIFIEX_UPLD_SIZE
+        && host_command_size >= marvell_wifi_cmd::S_DS_GEN
+        && interface_len == marvell_wifi_cmd::INTF_HEADER_LEN + host_command_size
+    {
+        ConnectionTimeoutResponseClass::ExpectedHeaderSeen
+    } else {
+        ConnectionTimeoutResponseClass::NonemptyMismatch
+    }
+}
+
+/// Projects exactly three aligned volatile u32 words into the fixed six-word
+/// redacted HostCmd header. connect_cmd_ptr/connect_rsp_ptr are 64-byte aligned,
+/// and no offset at or beyond byte 12 is reachable through this helper.
+fn read_fixed_connection_header(buffer: *mut u8) -> marvell_wifi_cmd::MarvellResponseHeader {
+    let interface = read_reg(buffer, 0);
+    let command_size = read_reg(buffer, 4);
+    let sequence_result = read_reg(buffer, 8);
+    marvell_wifi_cmd::MarvellResponseHeader {
+        interface_len: interface as u16,
+        interface_type: (interface >> 16) as u16,
+        command: command_size as u16,
+        host_command_size: (command_size >> 16) as u16,
+        sequence: sequence_result as u16,
+        result: (sequence_result >> 16) as u16,
+    }
+}
+
+const fn connection_stage_timeout_code(stage: ConnectionStage) -> u32 {
+    match stage {
+        ConnectionStage::Idle => 0,
+        ConnectionStage::SupplicantProfile => 1,
+        ConnectionStage::SupplicantPmk => 2,
+        ConnectionStage::Associate => 3,
+        ConnectionStage::WaitPortRelease => 4,
+        ConnectionStage::LinkReady => 5,
+        ConnectionStage::Failed => 6,
+    }
+}
+
+fn connection_timeout_fingerprint(
+    stage: ConnectionStage,
+    expected_command: u16,
+    published_command_len: u16,
+    request_header_matches_expected: bool,
+    cleanup_verified: bool,
+    response_class: ConnectionTimeoutResponseClass,
+) -> u32 {
+    debug_assert!(expected_command <= 0x00ff);
+    debug_assert!(published_command_len <= 0x03ff);
+    (CONNECTION_TIMEOUT_FINGERPRINT_TAG << CONNECTION_TIMEOUT_FINGERPRINT_TAG_SHIFT)
+        | (connection_stage_timeout_code(stage) << CONNECTION_TIMEOUT_STAGE_SHIFT)
+        | (u32::from(expected_command) << CONNECTION_TIMEOUT_COMMAND_SHIFT)
+        | (u32::from(published_command_len) << CONNECTION_TIMEOUT_COMMAND_LEN_SHIFT)
+        | if request_header_matches_expected {
+            CONNECTION_TIMEOUT_REQUEST_HEADER_MATCH
+        } else {
+            0
+        }
+        | if cleanup_verified {
+            CONNECTION_TIMEOUT_CLEANUP_VERIFIED
+        } else {
+            0
+        }
+        | response_class as u32
 }
 
 fn parse_connection_dma_response(

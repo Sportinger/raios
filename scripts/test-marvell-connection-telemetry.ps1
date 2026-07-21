@@ -249,7 +249,7 @@ Require-Match $usb 'const SCSI_WRITE10_FUA:\s*u8 = 1 << 3' "USB RECLOG write has
 Require-Match $write10 '0x2A,\s*SCSI_WRITE10_FUA' "USB RECLOG writes do not set WRITE(10) FUA"
 Require-Match $usb 'msc_write_sector_from_buffer\(point\.lba\)\?.*msc_read_sector_copy\(point\.lba\)\?.*verify_hw_failure_trace_readback' "FUA checkpoint is not read back and reparsed"
 
-Require-Match $trace 'K2CheckpointPersistFailed = 110.*K2PublicationRejected = 111.*K2PciCommandRejected = 112.*MarvellPciCommand = 7.*MarvellPublicationStep = 8' "dedicated terminal K2 status/register codes are missing"
+Require-Match $trace 'K2CheckpointPersistFailed = 110.*K2PublicationRejected = 111.*K2PciCommandRejected = 112.*MarvellPciCommand = 7.*MarvellPublicationStep = 8.*MarvellConnectionTimeoutFingerprint = 9' "dedicated terminal K2/connection-timeout status and register codes are missing"
 Require-Match $driver 'HwFailureStatus::K2CheckpointPersistFailed.*HwFailureStatus::K2PublicationRejected.*HwFailureStatus::K2PciCommandRejected' "K2 terminal paths still collapse to generic TransportFault"
 
 function Test-DataRingFailureDiagnostics([string]$Text) {
@@ -289,13 +289,109 @@ $rxWithEarlyPointerObservation = $driver.Replace(
 )
 Require (-not (Test-DataRingFailureDiagnostics $rxWithEarlyPointerObservation)) "RX arm-time pointer read/decode failure injection was accepted"
 
+function Test-ConnectionTimeoutFingerprint([string]$DriverText, [string]$TraceText) {
+    $layout = Slice-Between $DriverText "// Stable MarvellConnectionTimeoutFingerprint payload" "fn queue_connection_timeout_trace"
+    $job = Slice-Between $DriverText "struct ConnectionJob" "/// Mutually exclusive credential sources"
+    $arm = Slice-Between $DriverText "fn arm_connection_command" "pub fn poll_connection"
+    $poll = Slice-Between $DriverText "pub fn poll_connection" "fn next_connection_phase"
+    $timeout = Slice-Between $poll "if elapsed_ms(job.phase_started_tsc) >= CONNECT_CMD_TIMEOUT_MS" "if !job.waiting"
+    $portTimeout = Slice-Between $poll "if job.phase == ConnectionStage::WaitPortRelease" "if elapsed_ms(job.phase_started_tsc) >= CONNECT_CMD_TIMEOUT_MS"
+    $completion = Slice-Between $poll "if status == u32::MAX" "if !terminal_quiesce_and_cleanup_while_gated"
+    $queue = Slice-Between $DriverText "fn queue_connection_timeout_trace" "#[repr(C, packed)]"
+    $finish = Slice-Between $DriverText "fn finish_connection_locked" "fn quarantine_connection_job"
+    $quarantine = Slice-Between $DriverText "fn quarantine_connection_job" "fn clear_connection_secret_dma"
+    $request = Slice-Between $DriverText "fn connection_request_header_matches_expected" "/// Reads only the fixed redacted response header"
+    $response = Slice-Between $DriverText "fn connection_timeout_response_class_after_verified_cleanup" "const fn connection_stage_timeout_code"
+    $fixedHeader = Slice-Between $DriverText "fn read_fixed_connection_header" "const fn connection_stage_timeout_code"
+    $packer = Slice-Between $DriverText "const fn connection_stage_timeout_code" "fn parse_connection_dma_response"
+
+    $layoutStable = [regex]::IsMatch($layout, 'bits 31\.\.25 = 0x53.*24\.\.22 = ConnectionStage.*21\.\.14 = exact.*HostCmd ID.*13\.\.4 = exact published command length.*bit 3 = fixed 12-byte request header matched.*bit 2 = terminal quiesce.*bits 1\.\.0 = response class.*CONNECTION_TIMEOUT_FINGERPRINT_TAG:\s*u32\s*=\s*0x53.*TAG_SHIFT:\s*u32\s*=\s*25.*STAGE_SHIFT:\s*u32\s*=\s*22.*COMMAND_SHIFT:\s*u32\s*=\s*14.*COMMAND_LEN_SHIFT:\s*u32\s*=\s*4.*REQUEST_HEADER_MATCH:\s*u32\s*=\s*1 << 3.*CLEANUP_VERIFIED:\s*u32\s*=\s*1 << 2', [Text.RegularExpressions.RegexOptions]::Singleline)
+    $responseClassesStable = [regex]::IsMatch($DriverText, '#\[repr\(u8\)\]\s*enum ConnectionTimeoutResponseClass.*UntouchedZero\s*=\s*0.*ExpectedHeaderSeen\s*=\s*1.*NonemptyMismatch\s*=\s*2.*Unavailable\s*=\s*3', [Text.RegularExpressions.RegexOptions]::Singleline)
+    $jobStoresPublicationFacts = [regex]::IsMatch($job, 'published_command_len:\s*u16.*request_header_matches_expected:\s*bool', [Text.RegularExpressions.RegexOptions]::Singleline)
+
+    $requestAt = $arm.IndexOf('connection_request_header_matches_expected', [StringComparison]::Ordinal)
+    $lengthAt = $arm.IndexOf('job.published_command_len = command_len as u16', [StringComparison]::Ordinal)
+    $publishAt = $arm.IndexOf('publish_host_command_while_gated', [StringComparison]::Ordinal)
+    $requestCapturedBeforePublication = ($requestAt -ge 0) -and ($lengthAt -gt $requestAt) -and ($publishAt -gt $lengthAt)
+    $requestIsFixedAndRedacted = [regex]::IsMatch($request, 'read_fixed_connection_header\(connect_cmd_ptr\(\)\).*interface_len as usize == command_len.*interface_type == marvell_wifi_cmd::MWIFIEX_TYPE_CMD.*command == expected_command.*host_command_size as usize == expected_host_size.*sequence == connection_phase_seq.*result == 0', [Text.RegularExpressions.RegexOptions]::Singleline) -and
+        -not [regex]::IsMatch($request, 'target\.|ssid|bssid|passphrase|pmk|security_ie|secret_source|MWIFIEX_UPLD_SIZE', [Text.RegularExpressions.RegexOptions]::IgnoreCase)
+
+    $statusAt = $timeout.IndexOf('let status = read_reg(mmio, PCIE_HOST_INT_STATUS)', [StringComparison]::Ordinal)
+    $quarantineAt = $timeout.IndexOf('quarantine_connection_job(&job)', [StringComparison]::Ordinal)
+    $responseAt = $timeout.IndexOf('connection_timeout_response_class_after_verified_cleanup(&job)', [StringComparison]::Ordinal)
+    $specializedQueueAt = $timeout.IndexOf('queue_connection_timeout_trace', [StringComparison]::Ordinal)
+    $finishAt = $timeout.IndexOf('finish_connection_locked', [StringComparison]::Ordinal)
+    $timeoutOrder = ($statusAt -ge 0) -and ($quarantineAt -gt $statusAt) -and ($responseAt -gt $quarantineAt) -and ($specializedQueueAt -gt $responseAt) -and ($finishAt -gt $specializedQueueAt) -and
+        [regex]::IsMatch($timeout, 'let cleanup_verified = quarantine_connection_job.*if cleanup_verified.*connection_timeout_response_class_after_verified_cleanup.*else.*ConnectionTimeoutResponseClass::Unavailable.*queue_connection_timeout_trace.*ConnectionResult::CommandTimeout', [Text.RegularExpressions.RegexOptions]::Singleline)
+    $responseIsFixedAndPostCleanupOnly = [regex]::IsMatch($response, 'read_fixed_connection_header\(connect_rsp_ptr\(\)\).*header\.is_empty\(\).*UntouchedZero.*HOST_CMD_RET_BIT.*interface_type.*sequence.*interface_len.*host_command_size.*ExpectedHeaderSeen.*NonemptyMismatch', [Text.RegularExpressions.RegexOptions]::Singleline) -and
+        -not [regex]::IsMatch($response, 'slice::from_raw_parts|HOST_INTR_CMD_DONE|host_cmd_done_is_current|ConnectionResult::LinkReady|status\s*==\s*0', [Text.RegularExpressions.RegexOptions]::Singleline)
+    $fixedHeaderIsTwelveBytes = ([regex]::Matches($fixedHeader, 'read_reg\(buffer,').Count -eq 3) -and
+        [regex]::IsMatch($fixedHeader, 'read_reg\(buffer, 0\).*read_reg\(buffer, 4\).*read_reg\(buffer, 8\).*interface_len: interface as u16.*interface_type: \(interface >> 16\) as u16.*command: command_size as u16.*host_command_size: \(command_size >> 16\) as u16.*sequence: sequence_result as u16.*result: \(sequence_result >> 16\) as u16', [Text.RegularExpressions.RegexOptions]::Singleline) -and
+        -not [regex]::IsMatch($fixedHeader, 'read_reg\(buffer, (?:1[2-9]|[2-9][0-9])\)|slice::from_raw_parts|MWIFIEX_UPLD_SIZE')
+
+    $hostStepAt = $queue.IndexOf('register: HwFailureRegister::MarvellHostInterruptStatus', [StringComparison]::Ordinal)
+    $fingerprintStepAt = $queue.IndexOf('register: HwFailureRegister::MarvellConnectionTimeoutFingerprint', [StringComparison]::Ordinal)
+    $terminalPairIsOneShot = ($hostStepAt -ge 0) -and ($fingerprintStepAt -gt $hostStepAt) -and
+        ([regex]::Matches($queue, 'usb::queue_hw_failure_trace\(').Count -eq 1) -and
+        ([regex]::Matches($DriverText, 'queue_connection_timeout_trace\(').Count -eq 2) -and
+        [regex]::IsMatch($queue, 'status:\s*HwFailureStatus::Timeout.*register_value:\s*host_int_status.*status:\s*HwFailureStatus::Timeout.*register_value:\s*fingerprint', [Text.RegularExpressions.RegexOptions]::Singleline) -and
+        -not [regex]::IsMatch($queue, 'job\.target|job\.secret_source|connect_cmd_ptr|connect_rsp_ptr|cmd_dma_phys|rsp_dma_phys|\bheader\.|ssid|bssid|passphrase|pmk|security_ie|payload', [Text.RegularExpressions.RegexOptions]::IgnoreCase)
+    $genericFallbackRemains = [regex]::IsMatch($finish, 'ConnectionResult::CommandTimeout \| ConnectionResult::PortReleaseTimeout.*HwFailureStatus::Timeout.*queue_fixed_hw_failure_trace.*HwFailureRegister::MarvellHostInterruptStatus.*host_int_status', [Text.RegularExpressions.RegexOptions]::Singleline) -and
+        -not [regex]::IsMatch($portTimeout, 'queue_connection_timeout_trace')
+
+    $quarantineIsFailClosed = [regex]::IsMatch($quarantine, 'DATA_LINK_READY\.store\(false.*let cleanup_verified = terminal_quiesce_and_cleanup_while_gated.*if cleanup_verified.*clear_connection_secret_dma.*CONNECTION_REBOOT_REQUIRED\.swap\(true.*cleanup_verified', [Text.RegularExpressions.RegexOptions]::Singleline)
+    $completionStillRequiresCurrentDone = [regex]::IsMatch($completion, 'host_cmd_done_is_current\(\s*job\.cmd_done_low_baseline,\s*status,\s*HOST_INTR_CMD_DONE.*status & HOST_INTR_CMD_DONE != 0.*StaleCommandDone.*runtime\.job = Some\(job\).*return \(false', [Text.RegularExpressions.RegexOptions]::Singleline) -and
+        -not [regex]::IsMatch($completion, 'status\s*==\s*0|ExpectedHeaderSeen|expected_header_seen')
+    $timeoutAndMmioBoundariesRemain = [regex]::IsMatch($DriverText, 'const CONNECT_CMD_TIMEOUT_MS:\s*u64\s*=\s*15_000') -and
+        [regex]::IsMatch($completion, 'status == u32::MAX.*MmioUnavailable', [Text.RegularExpressions.RegexOptions]::Singleline)
+
+    $packingIsComplete = [regex]::IsMatch($packer, 'ConnectionStage::Idle\s*=>\s*0.*SupplicantProfile\s*=>\s*1.*SupplicantPmk\s*=>\s*2.*Associate\s*=>\s*3.*WaitPortRelease\s*=>\s*4.*LinkReady\s*=>\s*5.*Failed\s*=>\s*6.*expected_command:\s*u16.*published_command_len:\s*u16.*request_header_matches_expected:\s*bool.*cleanup_verified:\s*bool.*response_class:\s*ConnectionTimeoutResponseClass.*FINGERPRINT_TAG << CONNECTION_TIMEOUT_FINGERPRINT_TAG_SHIFT.*connection_stage_timeout_code\(stage\) << CONNECTION_TIMEOUT_STAGE_SHIFT.*u32::from\(expected_command\) << CONNECTION_TIMEOUT_COMMAND_SHIFT.*u32::from\(published_command_len\) << CONNECTION_TIMEOUT_COMMAND_LEN_SHIFT.*CONNECTION_TIMEOUT_REQUEST_HEADER_MATCH.*CONNECTION_TIMEOUT_CLEANUP_VERIFIED.*response_class as u32', [Text.RegularExpressions.RegexOptions]::Singleline)
+    $traceRegisterIsStable = [regex]::IsMatch($TraceText, 'MarvellHostInterruptStatus = 1.*MarvellConnectionTimeoutFingerprint = 9', [Text.RegularExpressions.RegexOptions]::Singleline)
+
+    $layoutStable -and $responseClassesStable -and $jobStoresPublicationFacts -and
+        $requestCapturedBeforePublication -and $requestIsFixedAndRedacted -and $timeoutOrder -and
+        $responseIsFixedAndPostCleanupOnly -and $fixedHeaderIsTwelveBytes -and $terminalPairIsOneShot -and $genericFallbackRemains -and
+        $quarantineIsFailClosed -and $completionStillRequiresCurrentDone -and
+        $timeoutAndMmioBoundariesRemain -and $packingIsComplete -and $traceRegisterIsStable
+}
+
+Require (Test-ConnectionTimeoutFingerprint $driver $trace) "connection-timeout fingerprint layout, ordering, redaction, one-shot trace, or fail-closed boundary is incomplete"
+$responseBeforeQuiesce = $driver.Replace(
+    'let cleanup_verified = quarantine_connection_job(&job);',
+    'let _early_response = connection_timeout_response_class_after_verified_cleanup(&job); let cleanup_verified = quarantine_connection_job(&job);'
+)
+Require (-not (Test-ConnectionTimeoutFingerprint $responseBeforeQuiesce $trace)) "response probe before verified BME-off/cleanup failure injection was accepted"
+$headerInsteadOfDone = $driver.Replace('marvell_wifi_cmd::host_cmd_done_is_current(', 'connection_timeout_expected_header_seen(')
+Require (-not (Test-ConnectionTimeoutFingerprint $headerInsteadOfDone $trace)) "expected-header-seen as current-epoch CMD_DONE failure injection was accepted"
+$statusZeroInsteadOfDone = $driver.Replace('if !marvell_wifi_cmd::host_cmd_done_is_current(', 'if status == 0 && !marvell_wifi_cmd::host_cmd_done_is_current(')
+Require (-not (Test-ConnectionTimeoutFingerprint $statusZeroInsteadOfDone $trace)) "status zero as current-epoch CMD_DONE failure injection was accepted"
+$withoutOriginalHostInterruptStep = $driver.Replace('register: HwFailureRegister::MarvellHostInterruptStatus,', 'register: HwFailureRegister::None,')
+Require (-not (Test-ConnectionTimeoutFingerprint $withoutOriginalHostInterruptStep $trace)) "removing the original host-interrupt timeout step was accepted"
+$forbiddenTraceLeaks = @(
+    @("raw_response_address", "connect_rsp_ptr() as u32"),
+    @("raw_header_word", "header.command as u32"),
+    @("payload", "payload.len() as u32"),
+    @("ssid", "ssid.len() as u32"),
+    @("bssid", "bssid[0] as u32"),
+    @("passphrase", "passphrase.len() as u32"),
+    @("pmk", "pmk[0] as u32")
+)
+foreach ($leak in $forbiddenTraceLeaks) {
+    $mutatedTrace = $driver.Replace('register_value: fingerprint,', ("register_value: " + $leak[1] + ","))
+    Require (-not (Test-ConnectionTimeoutFingerprint $mutatedTrace $trace)) ("forbidden " + $leak[0] + " in the timeout trace failure injection was accepted")
+}
+
 Require-Match $extractor 'k2_publication' "Windows extractor does not identify K2 publication records"
 Require-Match $extractor 'marvell_pci_command.*k2_publication_rejected' "Windows extractor does not decode K2 PCI/publication steps"
 Require-Match $extractor 'raios\.usb_diag\.v0.*usb_diagnostics' "Windows extractor does not surface usb_diag records"
+Require-Match $extractor 'function Convert-ConnectionTimeoutFingerprint.*connection_stage.*expected_command_id.*published_command_len.*request_header_matches_expected.*verified_quiesce_cleanup.*response_class' "Windows extractor does not decode every connection-timeout fingerprint field"
+Require-Match $extractor 'marvell_connection_timeout_fingerprint.*connection_timeout_fingerprint_tag_invalid' "Windows extractor lacks the dedicated timeout register name or mutation boundary"
 $extractorSelfTest = & powershell -NoProfile -ExecutionPolicy Bypass -File $extractorPath -SelfTest | ConvertFrom-Json
 Require ($extractorSelfTest.status -eq "passed") "Windows trace extractor self-test failed"
 Require (@($extractorSelfTest.checks) -contains "k2_decoded") "Windows extractor self-test does not cover K2 decoding"
 Require (@($extractorSelfTest.checks) -contains "usb_diag_visible") "Windows extractor self-test does not cover usb_diag visibility"
+Require (@($extractorSelfTest.checks) -contains "connection_timeout_fingerprint_decoded") "Windows extractor self-test does not cover the connection-timeout fingerprint"
+Require (@($extractorSelfTest.checks) -contains "connection_timeout_fingerprint_bit_mutation_rejected") "Windows extractor self-test does not reject a fingerprint bit mutation"
 
 $hwPoll = Slice-Between $driver "pub fn poll_hw_spec" "pub fn poll_scan_ext"
 $scanPoll = Slice-Between $driver "pub fn poll_scan_ext" "fn ensure_pci_memory_bus_master"

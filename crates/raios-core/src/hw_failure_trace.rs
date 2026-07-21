@@ -73,6 +73,7 @@ pub enum HwFailureRegister {
     XhciPortStatusChange = 6,
     MarvellPciCommand = 7,
     MarvellPublicationStep = 8,
+    MarvellConnectionTimeoutFingerprint = 9,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -366,6 +367,41 @@ mod tests {
         ] {
             assert!(!payload.to_ascii_lowercase().contains(forbidden));
         }
+    }
+
+    #[test]
+    fn connection_timeout_fingerprint_register_is_stable_and_keeps_the_terminal_pair() {
+        assert_eq!(
+            HwFailureRegister::MarvellConnectionTimeoutFingerprint as u16,
+            9
+        );
+        let mut trace = HwFailureTrace::new(
+            SEED_KERNEL_BUILD_ID_V0_1_0,
+            HwFailureSubsystem::MarvellWifiPcie,
+        );
+        trace
+            .push_step(HwFailureTraceStep {
+                boot_ms: 15_000,
+                phase: HwFailurePhase::Associate,
+                status: HwFailureStatus::Timeout,
+                register: HwFailureRegister::MarvellHostInterruptStatus,
+                register_value: 0,
+            })
+            .unwrap();
+        trace
+            .push_step(HwFailureTraceStep {
+                boot_ms: 15_000,
+                phase: HwFailurePhase::Associate,
+                status: HwFailureStatus::Timeout,
+                register: HwFailureRegister::MarvellConnectionTimeoutFingerprint,
+                register_value: 0xA6C4_880D,
+            })
+            .unwrap();
+
+        assert!(trace
+            .payload()
+            .unwrap()
+            .contains("[15000,5,100,1,0],[15000,5,100,9,2797897741]"));
     }
 
     #[test]
