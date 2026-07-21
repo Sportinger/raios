@@ -36,12 +36,14 @@ focused tests, mutations, extractor selftest, release build, and independent
 read-only acceptance are green. H23 hardware-proved it: command `0x0012`, length
 132, and the expected request header were published; quiesce/cleanup succeeded,
 but the response header remained `untouched_zero` and no `CMD_DONE` arrived.
-Commit `37a2b15` now adds one Associate-timeout observation of whether firmware
-cleared the HostCmd doorbell before quarantine; it does not alter publication,
-timeout, completion, or DMA ownership. Focused tests, release build, and final
-review are green, but the probe is not hardware-proven. The path is still
-in-kernel; connection, traffic, domain execution, IOMMU fencing, and safe
-kill/restart remain open.
+Commit `37a2b15` added one Associate-timeout observation without altering
+publication, timeout, completion, or DMA ownership. H24 hardware-proved it:
+three valid chained frames and a clean zero tail show USB `errors=0`, the same
+correct untouched Associate request at 118.495 seconds, and a cleared HostCmd
+doorbell. Firmware acknowledged notification but produced no response or
+`CMD_DONE`. ADR 0037 therefore selects one post-PMK `GET_HW_SPEC` liveness
+canary in place of Associate for H25. The path is still in-kernel; connection,
+traffic, domain execution, IOMMU fencing, and safe kill/restart remain open.
 
 ## USB stack
 - [ ] Host controller domain; hotplug events surface as typed events
