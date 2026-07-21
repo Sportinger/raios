@@ -43,11 +43,17 @@
 ## Feedback loop
 - [x] Compiler diagnostics consumed as JSON in the lane cycle —
       `scripts/cargo-json-diag.ps1` (raios.cargo_diag.v0: level/message/code/
-      file/line/column/rendered, written on success AND failure, hijack-safe
-      env). Negative proven: planted fixture error → exit 1, structured E0308
-      @ src\lib.rs:3:24 (orchestrator-rerun 2026-07-19). Honest limit: host
-      workspace crates; the kernel's custom-target build still reports via
-      the harness. Verified 2026-07-19.
+      file/line/column/rendered, written on success AND failure). Negative
+      proven: planted fixture error → exit 1, structured E0308 @
+      src\lib.rs:3:24, re-verified 2026-07-21 against
+      `scripts/experiments/json-diag-fixture` (positive exit 0; negative exit
+      1 with exact span; hostile inherited CARGO_HOME/CARGO_TARGET_DIR
+      overridden by the script's pins). Honest limits (audit A69): the env
+      pin covers only CARGO_HOME and CARGO_TARGET_DIR — RUSTC*/RUSTFLAGS/PATH
+      are not locked; no self-test wrapper or CI caller exists yet, so the
+      negative-path re-run stays orchestrator discipline. Host workspace
+      crates; the kernel's custom-target build still reports via the harness.
+      Verified 2026-07-21.
 - [x] Test harness (QEMU profiles + bare metal) startable and readable by
       agents (W6) — `vm-harness/shadow-vm-smoke.ps1` + ~45 profiles emit
       machine-readable JSON; agent-driven hundreds of times this session.
