@@ -34,6 +34,7 @@ $ReclogStartLba = 16
 $ReclogLbaCount = 4096
 $TraceSchema = "raios.hw_failure_trace.v0"
 $UsbDiagSchema = "raios.usb_diag.v0"
+$SurfaceFactMagic = [Text.Encoding]::ASCII.GetBytes("RAIOSSF0")
 
 function Get-U32Le {
     param([byte[]]$Bytes, [int]$Offset)
@@ -41,6 +42,12 @@ function Get-U32Le {
         throw "u32_out_of_bounds"
     }
     return [BitConverter]::ToUInt32($Bytes, $Offset)
+}
+
+function Get-U16Le {
+    param([byte[]]$Bytes, [int]$Offset)
+    if ($Offset -lt 0 -or $Offset + 2 -gt $Bytes.Length) { throw "u16_out_of_bounds" }
+    return [BitConverter]::ToUInt16($Bytes, $Offset)
 }
 
 function Get-U64Le {
@@ -515,6 +522,136 @@ function Convert-ValidatedUsbDiagnosticPayload {
     return $record
 }
 
+function Convert-SurfaceFactRecord {
+    param([byte[]]$Payload)
+    if ($Payload.Length -lt 40) { throw "surface_fact_wire_truncated" }
+    if (-not (Test-BytesEqual (Get-Slice $Payload 0 8) $SurfaceFactMagic)) { throw "surface_fact_wire_invalid_magic" }
+    $wireVersion = Get-U16Le $Payload 8
+    $headerLength = Get-U16Le $Payload 10
+    $recordLength = Get-U16Le $Payload 12
+    $payloadLength = Get-U16Le $Payload 14
+    $schemaVersion = Get-U16Le $Payload 16
+    $kind = $Payload[18]
+    if ($wireVersion -ne 1) { throw "surface_fact_wire_unsupported_version" }
+    if ($headerLength -ne 40) { throw "surface_fact_wire_invalid_header_length" }
+    if ($recordLength -ne 40 + $payloadLength -or $recordLength -gt 170) { throw "surface_fact_wire_invalid_record_length" }
+    if ($recordLength -gt $Payload.Length) { throw "surface_fact_wire_truncated" }
+    if ($recordLength -lt $Payload.Length) { throw "surface_fact_wire_trailing_bytes" }
+    if ($schemaVersion -ne 1) { throw "surface_fact_wire_schema_version_mismatch" }
+    if ($Payload[19] -ne 0) { throw "surface_fact_wire_invalid_flags" }
+    if ($kind -notin @(1, 2, 3, 4, 255)) { throw "surface_fact_wire_unknown_part_kind" }
+    $captureId = Get-Slice $Payload 20 16
+    $partIndex = Get-U16Le $Payload 36
+    $partCount = Get-U16Le $Payload 38
+    if ($partCount -eq 0 -or $partCount -gt 128) { throw "surface_fact_wire_invalid_part_count" }
+    if ($partIndex -ge $partCount) { throw "surface_fact_wire_part_index_out_of_range" }
+    $body = Get-Slice $Payload 40 $payloadLength
+    $fact = $null
+    switch ($kind) {
+        1 {
+            if ($body.Length -ne 24) { throw "surface_fact_wire_invalid_payload_length" }
+            $fact = [pscustomobject][ordered]@{ leaf = Get-U32Le $body 0; subleaf = Get-U32Le $body 4
+                eax = Get-U32Le $body 8; ebx = Get-U32Le $body 12; ecx = Get-U32Le $body 16; edx = Get-U32Le $body 20 }
+        }
+        2 {
+            if ($body.Length -lt 19) { throw "surface_fact_wire_invalid_payload_length" }
+            $locatorLength = $body[18]
+            if ($locatorLength -gt 32 -or $body.Length -ne 19 + $locatorLength) { throw "surface_fact_wire_invalid_locator" }
+            $locatorBytes = Get-Slice $body 19 $locatorLength
+            foreach ($byte in $locatorBytes) { if ($byte -lt 0x20 -or $byte -gt 0x7e) { throw "surface_fact_wire_invalid_model" } }
+            $size = Get-U64Le $body 4
+            if ($size -eq 0) { throw "surface_fact_wire_invalid_model" }
+            $fact = [pscustomobject][ordered]@{ array_handle = Get-U16Le $body 0; device_handle = Get-U16Le $body 2
+                size_bytes = $size; speed_mt_s = Get-U32Le $body 12; memory_type = $body[16]
+                form_factor = $body[17]; device_locator = [Text.Encoding]::ASCII.GetString($locatorBytes) }
+        }
+        3 {
+            if ($body.Length -ne 20) { throw "surface_fact_wire_invalid_payload_length" }
+            $base = Get-U64Le $body 0; $length = Get-U64Le $body 8
+            if ($length -eq 0 -or $base -gt [uint64]::MaxValue - $length) { throw "surface_fact_wire_invalid_model" }
+            $fact = [pscustomobject][ordered]@{ base = $base; length = $length; region_type = Get-U32Le $body 16 }
+        }
+        4 {
+            if ($body.Length -lt 16) { throw "surface_fact_wire_invalid_payload_length" }
+            $barCount = $body[15]
+            if ($barCount -gt 6) { throw "surface_fact_wire_invalid_bar_count" }
+            if ($body.Length -ne 16 + 19 * $barCount) { throw "surface_fact_wire_invalid_payload_length" }
+            if ($body[3] -gt 31 -or $body[4] -gt 7 -or $body[14] -gt 4) { throw "surface_fact_wire_invalid_model" }
+            $bars = @(); $seen = @{}; $reserved = @{}; $lastIndex = -1
+            for ($barSlot = 0; $barSlot -lt $barCount; $barSlot++) {
+                $barOffset = 16 + 19 * $barSlot; $barIndex = $body[$barOffset]; $barKind = $body[$barOffset + 1]
+                $barBase = Get-U64Le $body ($barOffset + 2); $barLength = Get-U64Le $body ($barOffset + 10)
+                $barStatus = $body[$barOffset + 18]
+                if ($barIndex -le $lastIndex) { throw "surface_fact_wire_noncanonical_bar_order" }
+                if ($barIndex -gt 5 -or $barKind -notin @(1, 2, 3) -or $barStatus -notin @(1, 2)) { throw "surface_fact_wire_invalid_bar_value" }
+                if ($seen.ContainsKey($barIndex) -or $reserved.ContainsKey($barIndex) -or $barLength -eq 0 -or
+                    $barBase -gt [uint64]::MaxValue - $barLength) { throw "surface_fact_wire_invalid_model" }
+                if ($barKind -eq 3) {
+                    if ($barIndex -eq 5 -or $seen.ContainsKey($barIndex + 1) -or $reserved.ContainsKey($barIndex + 1)) { throw "surface_fact_wire_invalid_model" }
+                    $reserved[$barIndex + 1] = $true
+                }
+                if ($barKind -in @(1, 2) -and ($barBase + $barLength) -gt 4294967296) { throw "surface_fact_wire_invalid_model" }
+                $seen[$barIndex] = $true; $lastIndex = $barIndex
+                $bars += [pscustomobject][ordered]@{ index = $barIndex; kind = @("", "io", "memory32", "memory64")[$barKind]
+                    base = $barBase; length = $barLength; status = @("", "assigned", "disabled")[$barStatus] }
+            }
+            $fact = [pscustomobject][ordered]@{ segment = Get-U16Le $body 0; bus = $body[2]; device = $body[3]
+                function = $body[4]; vendor_id = Get-U16Le $body 5; device_id = Get-U16Le $body 7
+                class_code = $body[9]; subclass = $body[10]; prog_if = $body[11]; revision = $body[12]
+                irq_line = $body[13]; irq_pin = $body[14]; bars = @($bars) }
+        }
+        255 {
+            if ($body.Length -ne 40) { throw "surface_fact_wire_invalid_payload_length" }
+            $fact = [pscustomobject][ordered]@{ cpu_parts = Get-U16Le $body 0; smbios_memory_parts = Get-U16Le $body 2
+                limine_memory_region_parts = Get-U16Le $body 4; pci_device_parts = Get-U16Le $body 6
+                facts_sha256 = ConvertTo-Hex (Get-Slice $body 8 32) }
+        }
+    }
+    $digestBytes = New-Object 'System.Collections.Generic.List[byte]'
+    foreach ($range in @(@(16, 2), @(20, 16), @(18, 1), @(36, 4), @(40, $payloadLength))) {
+        $digestBytes.AddRange([byte[]](Get-Slice $Payload $range[0] $range[1]))
+    }
+    return [pscustomobject][ordered]@{ wire_version = $wireVersion; schema_version = $schemaVersion
+        capture_id = ConvertTo-Hex $captureId; part_kind = $kind; part_index = $partIndex; part_count = $partCount
+        fact = $fact; digest_bytes = $digestBytes.ToArray() }
+}
+
+function Complete-SurfaceFactSeries {
+    param([object[]]$Parts, [object[]]$Sources)
+    if ($Parts.Count -eq 0) { return $null }
+    $completion = $Parts[-1]
+    if ($completion.part_kind -ne 255 -or $completion.part_index + 1 -ne $completion.part_count) { throw "surface_capture_completion_not_last" }
+    $counts = [ordered]@{ cpu = 0; smbios_memory = 0; limine_memory_region = 0; pci_device = 0 }
+    $cpu = @(); $smbios = @(); $limine = @(); $pci = @()
+    $semantic = New-Object 'System.Collections.Generic.List[byte]'
+    $semantic.AddRange([Text.Encoding]::ASCII.GetBytes("raios.surface_fact_capture.facts.v1`0"))
+    foreach ($part in $Parts) {
+        switch ($part.part_kind) {
+            1 { $counts.cpu++; $cpu += $part.fact; $semantic.AddRange([byte[]]$part.digest_bytes) }
+            2 { $counts.smbios_memory++; $smbios += $part.fact; $semantic.AddRange([byte[]]$part.digest_bytes) }
+            3 { $counts.limine_memory_region++; $limine += $part.fact; $semantic.AddRange([byte[]]$part.digest_bytes) }
+            4 { $counts.pci_device++; $pci += $part.fact; $semantic.AddRange([byte[]]$part.digest_bytes) }
+        }
+    }
+    foreach ($name in @("cpu", "smbios_memory", "limine_memory_region", "pci_device")) {
+        if ($counts[$name] -eq 0) { throw "surface_capture_missing_$name" }
+    }
+    $expected = $completion.fact
+    if ($counts.cpu -ne $expected.cpu_parts -or $counts.smbios_memory -ne $expected.smbios_memory_parts -or
+        $counts.limine_memory_region -ne $expected.limine_memory_region_parts -or $counts.pci_device -ne $expected.pci_device_parts) {
+        throw "surface_capture_completion_count_mismatch"
+    }
+    $factsSha = ConvertTo-Hex (Get-Sha256Bytes $semantic.ToArray())
+    if ($factsSha -cne $expected.facts_sha256) { throw "surface_capture_digest_mismatch" }
+    $candidate = [ordered]@{ schema = "raios.surface_fact_manifest_candidate.v1"; capture_id = $Parts[0].capture_id
+        wire_version = 1; fact_schema_version = 1; part_count = $Parts.Count; part_counts = [pscustomobject]$counts
+        facts_sha256 = $factsSha; cpu = @($cpu); smbios_memory = @($smbios); limine_memory_map = @($limine)
+        pci_devices = @($pci); raw_source = @($Sources) }
+    $candidateJson = ([pscustomobject]$candidate | ConvertTo-Json -Depth 10 -Compress)
+    $candidate["candidate_sha256"] = ConvertTo-Hex (Get-Sha256Bytes ([Text.Encoding]::UTF8.GetBytes($candidateJson)))
+    return [pscustomobject]$candidate
+}
+
 function Read-ReclogTraces {
     param(
         [byte[]]$Region,
@@ -525,6 +662,9 @@ function Read-ReclogTraces {
     }
     $records = @()
     $usbDiagnostics = @()
+    $surfaceParts = @()
+    $surfaceSources = @()
+    $surfaceComplete = $false
     $offset = 0
     [uint64]$expectedSeq = 1
     $previousFrameHash = New-Object byte[] 32
@@ -566,6 +706,40 @@ function Read-ReclogTraces {
         }
         $frame = Get-Slice $Region $offset $frameLength
         $frameHash = Get-Sha256Bytes $frame
+        $isSurface = $payload.Length -ge 8 -and (Test-BytesEqual (Get-Slice $payload 0 8) $SurfaceFactMagic)
+        if (-not $isSurface -and $payload.Length -gt 0) {
+            $prefixLength = [Math]::Min(8, $payload.Length)
+            if (Test-BytesEqual (Get-Slice $payload 0 $prefixLength) (Get-Slice $SurfaceFactMagic 0 $prefixLength)) {
+                throw "surface_fact_wire_truncated"
+            }
+            for ($probe = 1; $probe + 8 -le $payload.Length; $probe++) {
+                if (Test-BytesEqual (Get-Slice $payload $probe 8) $SurfaceFactMagic) {
+                    throw "surface_fact_wire_invalid_magic"
+                }
+            }
+        }
+        if ($isSurface) {
+            if ($surfaceComplete) { throw "surface_capture_after_completion" }
+            $part = Convert-SurfaceFactRecord $payload
+            if ($surfaceParts.Count -eq 0) {
+                if ($part.part_index -ne 0) { throw "surface_capture_missing_part" }
+            }
+            else {
+                $first = $surfaceParts[0]
+                if ($part.wire_version -ne $first.wire_version -or $part.schema_version -ne $first.schema_version -or
+                    $part.capture_id -cne $first.capture_id -or $part.part_count -ne $first.part_count) { throw "surface_capture_mixed_series" }
+                if ($part.part_index -ne $surfaceParts.Count) { throw "surface_capture_noncontiguous_part" }
+            }
+            $surfaceParts += $part
+            $surfaceSources += [pscustomobject][ordered]@{ part_index = $part.part_index; reclog_sequence = $sequence
+                absolute_lba = $AbsoluteStartLba + [uint64]($offset / $SectorSize); payload_sha256 = ConvertTo-Hex $payloadHash
+                frame_sha256 = ConvertTo-Hex $frameHash }
+            if ($part.part_kind -eq 255) {
+                if ($surfaceParts.Count -ne $part.part_count) { throw "surface_capture_missing_part" }
+                $surfaceComplete = $true
+            }
+        }
+        elseif ($surfaceParts.Count -gt 0 -and -not $surfaceComplete) { throw "surface_capture_foreign_frame" }
         $schemaPrefix = [Text.Encoding]::UTF8.GetBytes('{"schema":"raios.hw_failure_trace.v0",')
         if ($payload.Length -ge $schemaPrefix.Length -and
             (Test-BytesEqual (Get-Slice $payload 0 $schemaPrefix.Length) $schemaPrefix)) {
@@ -631,9 +805,12 @@ function Read-ReclogTraces {
         $expectedSeq++
         $offset += $frameLength
     }
+    if ($surfaceParts.Count -gt 0 -and -not $surfaceComplete) { throw "surface_capture_missing_completion" }
+    $surfaceCandidate = Complete-SurfaceFactSeries -Parts $surfaceParts -Sources $surfaceSources
     return [pscustomobject]@{
         records = @($records)
         usb_diagnostics = @($usbDiagnostics)
+        surface_fact_candidate = $surfaceCandidate
         valid_frame_count = [uint64]($expectedSeq - 1)
         tail_status = $tailStatus
     }
@@ -642,6 +819,11 @@ function Read-ReclogTraces {
 function New-SelfTestFrame {
     param([string]$PayloadText, [uint64]$Sequence, [byte[]]$PreviousFrameHash)
     $payload = [Text.Encoding]::UTF8.GetBytes($PayloadText)
+    return New-SelfTestBinaryFrame -Payload $payload -Sequence $Sequence -PreviousFrameHash $PreviousFrameHash
+}
+
+function New-SelfTestBinaryFrame {
+    param([byte[]]$Payload, [uint64]$Sequence, [byte[]]$PreviousFrameHash)
     if ($payload.Length -gt ($SectorSize - $ReclogHeaderLength)) {
         throw "selftest_payload_too_large"
     }
@@ -654,6 +836,97 @@ function New-SelfTestFrame {
     [Array]::Copy((Get-Sha256Bytes $payload), 0, $frame, 56, 32)
     [Array]::Copy($payload, 0, $frame, $ReclogHeaderLength, $payload.Length)
     return $frame
+}
+
+function Set-SelfTestBytes {
+    param([byte[]]$Target, [int]$Offset, [byte[]]$Value)
+    [Array]::Copy($Value, 0, $Target, $Offset, $Value.Length)
+}
+
+function New-SurfaceSelfTestRecord {
+    param([byte]$Kind, [uint16]$Index, [uint16]$Count, [byte[]]$CaptureId, [byte[]]$Body)
+    $record = New-Object byte[] (40 + $Body.Length)
+    Set-SelfTestBytes $record 0 $SurfaceFactMagic
+    Set-SelfTestBytes $record 8 ([BitConverter]::GetBytes([uint16]1))
+    Set-SelfTestBytes $record 10 ([BitConverter]::GetBytes([uint16]40))
+    Set-SelfTestBytes $record 12 ([BitConverter]::GetBytes([uint16]$record.Length))
+    Set-SelfTestBytes $record 14 ([BitConverter]::GetBytes([uint16]$Body.Length))
+    Set-SelfTestBytes $record 16 ([BitConverter]::GetBytes([uint16]1))
+    $record[18] = $Kind
+    Set-SelfTestBytes $record 20 $CaptureId
+    Set-SelfTestBytes $record 36 ([BitConverter]::GetBytes($Index))
+    Set-SelfTestBytes $record 38 ([BitConverter]::GetBytes($Count))
+    Set-SelfTestBytes $record 40 $Body
+    return $record
+}
+
+function Get-SurfaceSelfTestDigest {
+    param([object[]]$Records)
+    $bytes = New-Object 'System.Collections.Generic.List[byte]'
+    $bytes.AddRange([Text.Encoding]::ASCII.GetBytes("raios.surface_fact_capture.facts.v1`0"))
+    foreach ($item in $Records) {
+        $record = [byte[]]$item.bytes
+        $bodyLength = $record.Length - 40
+        foreach ($range in @(@(16, 2), @(20, 16), @(18, 1), @(36, 4), @(40, $bodyLength))) {
+            $bytes.AddRange([byte[]](Get-Slice $record $range[0] $range[1]))
+        }
+    }
+    return Get-Sha256Bytes $bytes.ToArray()
+}
+
+function New-SurfaceSelfTestPayloads {
+    $captureId = [byte[]](0..15 | ForEach-Object { 0x38 })
+    $count = [uint16]5
+    $cpu = New-Object byte[] 24
+    foreach ($pair in @(@(0, 1), @(4, 0), @(8, 1), @(12, 2), @(16, 3), @(20, 4))) {
+        Set-SelfTestBytes $cpu $pair[0] ([BitConverter]::GetBytes([uint32]$pair[1]))
+    }
+    $locator = [Text.Encoding]::ASCII.GetBytes("DIMM 0")
+    $smbios = New-Object byte[] (19 + $locator.Length)
+    Set-SelfTestBytes $smbios 0 ([BitConverter]::GetBytes([uint16]1)); Set-SelfTestBytes $smbios 2 ([BitConverter]::GetBytes([uint16]2))
+    Set-SelfTestBytes $smbios 4 ([BitConverter]::GetBytes([uint64]8589934592)); Set-SelfTestBytes $smbios 12 ([BitConverter]::GetBytes([uint32]1600))
+    $smbios[16] = 24; $smbios[17] = 9; $smbios[18] = $locator.Length; Set-SelfTestBytes $smbios 19 $locator
+    $limine = New-Object byte[] 20
+    Set-SelfTestBytes $limine 0 ([BitConverter]::GetBytes([uint64]1048576)); Set-SelfTestBytes $limine 8 ([BitConverter]::GetBytes([uint64]4194304))
+    Set-SelfTestBytes $limine 16 ([BitConverter]::GetBytes([uint32]0))
+    $pci = New-Object byte[] 54
+    Set-SelfTestBytes $pci 0 ([BitConverter]::GetBytes([uint16]0)); $pci[2] = 1; $pci[3] = 0; $pci[4] = 0
+    Set-SelfTestBytes $pci 5 ([BitConverter]::GetBytes([uint16]0x11ab)); Set-SelfTestBytes $pci 7 ([BitConverter]::GetBytes([uint16]0x2b38))
+    $pci[9] = 2; $pci[10] = 0; $pci[11] = 0; $pci[12] = 1; $pci[13] = 11; $pci[14] = 1; $pci[15] = 2
+    $pci[16] = 0; $pci[17] = 3; Set-SelfTestBytes $pci 18 ([BitConverter]::GetBytes([uint64]4294967296)); Set-SelfTestBytes $pci 26 ([BitConverter]::GetBytes([uint64]4096)); $pci[34] = 1
+    $pci[35] = 2; $pci[36] = 2; Set-SelfTestBytes $pci 37 ([BitConverter]::GetBytes([uint64]4026531840)); Set-SelfTestBytes $pci 45 ([BitConverter]::GetBytes([uint64]4096)); $pci[53] = 2
+    $records = @(
+        [pscustomobject]@{ bytes = New-SurfaceSelfTestRecord 1 0 $count $captureId $cpu },
+        [pscustomobject]@{ bytes = New-SurfaceSelfTestRecord 2 1 $count $captureId $smbios },
+        [pscustomobject]@{ bytes = New-SurfaceSelfTestRecord 3 2 $count $captureId $limine },
+        [pscustomobject]@{ bytes = New-SurfaceSelfTestRecord 4 3 $count $captureId $pci }
+    )
+    $completion = New-Object byte[] 40
+    foreach ($offset in @(0, 2, 4, 6)) { Set-SelfTestBytes $completion $offset ([BitConverter]::GetBytes([uint16]1)) }
+    Set-SelfTestBytes $completion 8 (Get-SurfaceSelfTestDigest $records)
+    $records += [pscustomobject]@{ bytes = New-SurfaceSelfTestRecord 255 4 $count $captureId $completion }
+    return ,$records
+}
+
+function New-SurfaceSelfTestRegion {
+    param([object[]]$Payloads)
+    $region = New-Object byte[] ($SectorSize * $Payloads.Count)
+    $previous = New-Object byte[] 32
+    for ($index = 0; $index -lt $Payloads.Count; $index++) {
+        $frame = New-SelfTestBinaryFrame -Payload ([byte[]]$Payloads[$index].bytes) -Sequence ([uint64]($index + 1)) -PreviousFrameHash $previous
+        [Array]::Copy($frame, 0, $region, $index * $SectorSize, $SectorSize)
+        $previous = Get-Sha256Bytes $frame
+    }
+    return $region
+}
+
+function Assert-SurfaceSelfTestRejected {
+    param([object[]]$Payloads, [string]$Expected)
+    try {
+        [void](Read-ReclogTraces -Region (New-SurfaceSelfTestRegion $Payloads) -AbsoluteStartLba 200)
+        throw "selftest_surface_negative_not_rejected"
+    }
+    catch { if ($_.Exception.Message -cne $Expected) { throw } }
 }
 
 function Invoke-SelfTest {
@@ -735,6 +1008,47 @@ function Invoke-SelfTest {
         $parsed.tail_status -cne "zero_tail") {
         throw "selftest_positive_failed"
     }
+
+    $surfacePayloads = New-SurfaceSelfTestPayloads
+    $surfaceRegion = New-SurfaceSelfTestRegion $surfacePayloads
+    $surfaceParsed = Read-ReclogTraces -Region $surfaceRegion -AbsoluteStartLba 200
+    $surfaceParsedAgain = Read-ReclogTraces -Region $surfaceRegion -AbsoluteStartLba 200
+    $candidate = $surfaceParsed.surface_fact_candidate
+    if ($candidate.schema -cne "raios.surface_fact_manifest_candidate.v1" -or
+        $candidate.capture_id -cne ("38" * 16) -or $candidate.part_count -ne 5 -or
+        $candidate.part_counts.cpu -ne 1 -or $candidate.part_counts.smbios_memory -ne 1 -or
+        $candidate.part_counts.limine_memory_region -ne 1 -or $candidate.part_counts.pci_device -ne 1 -or
+        $candidate.smbios_memory[0].device_locator -cne "DIMM 0" -or
+        $candidate.pci_devices[0].bars[0].index -ne 0 -or $candidate.pci_devices[0].bars[1].index -ne 2 -or
+        $candidate.raw_source.Count -ne 5 -or $candidate.raw_source[0].reclog_sequence -ne 1 -or
+        $candidate.raw_source[4].reclog_sequence -ne 5 -or $candidate.candidate_sha256.Length -ne 64 -or
+        $candidate.facts_sha256 -cne "c4206efc850258fdd067d9e5bce3433e402531477c4fb1f657f5ca102fa51148" -or
+        $candidate.candidate_sha256 -cne "2ccdb89cb85baa807b089f36b9ec771047437c0c2d9046b80740472fbeaa57f8" -or
+        $candidate.candidate_sha256 -cne $surfaceParsedAgain.surface_fact_candidate.candidate_sha256) {
+        throw "selftest_surface_positive_failed"
+    }
+
+    $case = New-SurfaceSelfTestPayloads
+    Assert-SurfaceSelfTestRejected @($case[0], $case[2], $case[3], $case[4]) "surface_capture_noncontiguous_part"
+    $case = New-SurfaceSelfTestPayloads
+    $case[2].bytes[36] = 1; $case[2].bytes[37] = 0
+    Assert-SurfaceSelfTestRejected $case "surface_capture_noncontiguous_part"
+    $case = New-SurfaceSelfTestPayloads
+    $case[1].bytes[20] = $case[1].bytes[20] -bxor 1
+    Assert-SurfaceSelfTestRejected $case "surface_capture_mixed_series"
+    $case = New-SurfaceSelfTestPayloads
+    $case[4].bytes = Get-Slice $case[4].bytes 0 ($case[4].bytes.Length - 1)
+    Assert-SurfaceSelfTestRejected $case "surface_fact_wire_truncated"
+    $case = New-SurfaceSelfTestPayloads
+    $case[3].bytes[75] = 0
+    Assert-SurfaceSelfTestRejected $case "surface_fact_wire_noncanonical_bar_order"
+    $case = New-SurfaceSelfTestPayloads
+    $case[0].bytes[40] = $case[0].bytes[40] -bxor 1
+    Assert-SurfaceSelfTestRejected $case "surface_capture_digest_mismatch"
+    $case = New-SurfaceSelfTestPayloads
+    Assert-SurfaceSelfTestRejected @($case[0], [pscustomobject]@{ bytes = [Text.Encoding]::ASCII.GetBytes("foreign") }, $case[1], $case[2], $case[3], $case[4]) "surface_capture_foreign_frame"
+    $case = New-SurfaceSelfTestPayloads
+    Assert-SurfaceSelfTestRejected @($case + $case[0]) "surface_capture_after_completion"
 
     $validFingerprint = [Convert]::ToUInt32("A6C4880D", 16)
     $mutatedFingerprint = [uint32]($validFingerprint -bxor [Convert]::ToUInt32("80000000", 16))
@@ -854,7 +1168,7 @@ function Invoke-SelfTest {
     [pscustomobject][ordered]@{
         schema = "raios.hw_failure_trace.extractor_selftest.v0"
         status = "passed"
-        checks = @("gpt_guid_known_vector", "gpt_guid_invalid_length_rejected", "powershell51_crc32", "crc32_mutation_rejected", "verified_readback", "k2_decoded", "connection_timeout_fingerprint_decoded", "connection_timeout_fingerprint_bit_mutation_rejected", "associate_doorbell_ack_decoded", "associate_doorbell_ack_tag_mutation_rejected", "associate_doorbell_ack_value_mutation_rejected", "post_pmk_hw_spec_canary_decoded", "post_pmk_hw_spec_canary_tag_mutation_rejected", "post_pmk_hw_spec_canary_value_mutation_rejected", "usb_diag_visible", "legacy_negative_usb_diag_rejected", "torn_rejected", "secret_field_rejected", "full_region_reported")
+        checks = @("gpt_guid_known_vector", "gpt_guid_invalid_length_rejected", "powershell51_crc32", "crc32_mutation_rejected", "verified_readback", "k2_decoded", "connection_timeout_fingerprint_decoded", "connection_timeout_fingerprint_bit_mutation_rejected", "associate_doorbell_ack_decoded", "associate_doorbell_ack_tag_mutation_rejected", "associate_doorbell_ack_value_mutation_rejected", "post_pmk_hw_spec_canary_decoded", "post_pmk_hw_spec_canary_tag_mutation_rejected", "post_pmk_hw_spec_canary_value_mutation_rejected", "usb_diag_visible", "legacy_negative_usb_diag_rejected", "surface_fact_series_deterministic", "surface_fact_missing_part_rejected", "surface_fact_duplicate_part_rejected", "surface_fact_mixed_capture_rejected", "surface_fact_truncated_completion_rejected", "surface_fact_noncanonical_bar_order_rejected", "surface_fact_semantic_mutation_rejected", "surface_fact_foreign_frame_rejected", "surface_fact_after_completion_rejected", "torn_rejected", "secret_field_rejected", "full_region_reported")
     } | ConvertTo-Json -Depth 4 -Compress
 }
 
@@ -919,6 +1233,7 @@ try {
         }
         traces = @($scan.records)
         usb_diagnostics = @($scan.usb_diagnostics)
+        surface_fact_candidate = $scan.surface_fact_candidate
     } | ConvertTo-Json -Depth 10 -Compress
 }
 finally {
