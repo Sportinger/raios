@@ -407,6 +407,32 @@ function Convert-ConnectionTimeoutFingerprint {
     }
 }
 
+function Convert-AssociateDoorbellAck {
+    param([uint32]$Value)
+
+    $tagMask = [Convert]::ToUInt32("ffff0000", 16)
+    $expectedTag = [Convert]::ToUInt32("d2010000", 16)
+    if (($Value -band $tagMask) -ne $expectedTag) {
+        throw "associate_doorbell_ack_tag_invalid"
+    }
+    $classification = if ($Value -eq $expectedTag) {
+        "cleared"
+    }
+    elseif ($Value -eq [Convert]::ToUInt32("d2010001", 16)) {
+        "still_set"
+    }
+    elseif ($Value -eq [Convert]::ToUInt32("d2010002", 16)) {
+        "unavailable"
+    }
+    else {
+        throw "associate_doorbell_ack_value_invalid"
+    }
+
+    [pscustomobject][ordered]@{
+        classification = $classification
+    }
+}
+
 function Get-HwFailureRegisterName {
     param([int]$Register)
     switch ($Register) {
@@ -518,6 +544,7 @@ function Read-ReclogTraces {
             $isK2Publication = $false
             foreach ($stepValue in @($trace.steps)) {
                 $step = @($stepValue)
+                $phase = [int]$step[1]
                 $status = [int]$step[2]
                 $register = [int]$step[3]
                 if ($status -in @(110, 111, 112) -or
@@ -527,7 +554,7 @@ function Read-ReclogTraces {
                 }
                 $decodedStep = [ordered]@{
                     boot_ms = [uint32]$step[0]
-                    phase = [int]$step[1]
+                    phase = $phase
                     status = $status
                     status_name = Get-HwFailureStatusName $status
                     register = $register
@@ -537,6 +564,10 @@ function Read-ReclogTraces {
                 if ($register -eq 9) {
                     $decodedStep["connection_timeout_fingerprint"] =
                         Convert-ConnectionTimeoutFingerprint ([uint32]$step[4])
+                }
+                if ($phase -eq 5 -and $status -eq 100 -and $register -eq 8) {
+                    $decodedStep["associate_doorbell_ack"] =
+                        Convert-AssociateDoorbellAck ([uint32]$step[4])
                 }
                 $decodedSteps += [pscustomobject]$decodedStep
             }
@@ -627,13 +658,16 @@ function Invoke-SelfTest {
 
     $payload = '{"schema":"raios.hw_failure_trace.v0","classification":"local_only","scope":"current_boot","build_id":65536,"subsystem":1,"steps":[[10,1,1,7,1026],[20,1,111,8,2],[30,5,100,1,0],[30,5,100,9,2797897741]]}'
     $frame = New-SelfTestFrame -PayloadText $payload -Sequence 1 -PreviousFrameHash (New-Object byte[] 32)
-    $usbPayload = '{"schema":"raios.usb_diag.v0","classification":"local_only","scope":"current_boot","reason":"boot_probe","seq":2,"hub_count":1,"hub_ports":4,"hub_connected":2,"hub_reset":1,"hub_done":2,"recover":0,"reports":12,"errors":0,"last_int_cc":1,"last_xfer_cc":1,"last_cmd":42,"last_cc":1,"enum_vid":4660,"enum_pid":22136,"m_port":1,"m_chg":0,"m_ep":1}'
-    $usbFrame = New-SelfTestFrame -PayloadText $usbPayload -Sequence 2 -PreviousFrameHash (Get-Sha256Bytes $frame)
-    $region = New-Object byte[] ($SectorSize * 3)
+    $doorbellPayload = '{"schema":"raios.hw_failure_trace.v0","classification":"local_only","scope":"current_boot","build_id":65536,"subsystem":1,"steps":[[30,5,100,1,0],[30,5,100,9,2797897804],[30,5,100,8,3523280896]]}'
+    $doorbellFrame = New-SelfTestFrame -PayloadText $doorbellPayload -Sequence 2 -PreviousFrameHash (Get-Sha256Bytes $frame)
+    $usbPayload = '{"schema":"raios.usb_diag.v0","classification":"local_only","scope":"current_boot","reason":"boot_probe","seq":3,"hub_count":1,"hub_ports":4,"hub_connected":2,"hub_reset":1,"hub_done":2,"recover":0,"reports":12,"errors":0,"last_int_cc":1,"last_xfer_cc":1,"last_cmd":42,"last_cc":1,"enum_vid":4660,"enum_pid":22136,"m_port":1,"m_chg":0,"m_ep":1}'
+    $usbFrame = New-SelfTestFrame -PayloadText $usbPayload -Sequence 3 -PreviousFrameHash (Get-Sha256Bytes $doorbellFrame)
+    $region = New-Object byte[] ($SectorSize * 4)
     [Array]::Copy($frame, 0, $region, 0, $SectorSize)
-    [Array]::Copy($usbFrame, 0, $region, $SectorSize, $SectorSize)
+    [Array]::Copy($doorbellFrame, 0, $region, $SectorSize, $SectorSize)
+    [Array]::Copy($usbFrame, 0, $region, $SectorSize * 2, $SectorSize)
     $parsed = Read-ReclogTraces -Region $region -AbsoluteStartLba 100
-    if ($parsed.records.Count -ne 1 -or
+    if ($parsed.records.Count -ne 2 -or
         $parsed.records[0].kind -cne "k2_publication" -or
         $parsed.records[0].decoded_steps[0].register_name -cne "marvell_pci_command" -or
         $parsed.records[0].decoded_steps[1].status_name -cne "k2_publication_rejected" -or
@@ -645,6 +679,15 @@ function Invoke-SelfTest {
         $parsed.records[0].decoded_steps[3].connection_timeout_fingerprint.request_header_matches_expected -ne $true -or
         $parsed.records[0].decoded_steps[3].connection_timeout_fingerprint.verified_quiesce_cleanup -cne "succeeded" -or
         $parsed.records[0].decoded_steps[3].connection_timeout_fingerprint.response_class -cne "expected_header_seen" -or
+        $parsed.records[1].decoded_steps.Count -ne 3 -or
+        $parsed.records[1].decoded_steps[0].register_name -cne "marvell_host_interrupt_status" -or
+        $parsed.records[1].decoded_steps[1].register_name -cne "marvell_connection_timeout_fingerprint" -or
+        $parsed.records[1].decoded_steps[1].connection_timeout_fingerprint.connection_stage -cne "associate" -or
+        $parsed.records[1].decoded_steps[1].connection_timeout_fingerprint.expected_command_hex -cne "0x0012" -or
+        $parsed.records[1].decoded_steps[1].connection_timeout_fingerprint.published_command_len -ne 132 -or
+        $parsed.records[1].decoded_steps[1].connection_timeout_fingerprint.response_class -cne "untouched_zero" -or
+        $parsed.records[1].decoded_steps[2].register_name -cne "marvell_publication_step" -or
+        $parsed.records[1].decoded_steps[2].associate_doorbell_ack.classification -cne "cleared" -or
         $parsed.usb_diagnostics.Count -ne 1 -or
         $parsed.usb_diagnostics[0].diagnostic.reason -cne "boot_probe" -or
         $parsed.tail_status -cne "zero_tail") {
@@ -660,6 +703,32 @@ function Invoke-SelfTest {
     catch {
         if ($_.Exception.Message -cne "connection_timeout_fingerprint_tag_invalid") {
             throw
+        }
+    }
+
+    $doorbellCases = [ordered]@{
+        "d2010000" = "cleared"
+        "d2010001" = "still_set"
+        "d2010002" = "unavailable"
+    }
+    foreach ($case in $doorbellCases.GetEnumerator()) {
+        $decoded = Convert-AssociateDoorbellAck ([Convert]::ToUInt32($case.Key, 16))
+        if ($decoded.classification -cne $case.Value) {
+            throw "selftest_associate_doorbell_ack_classification_failed"
+        }
+    }
+    foreach ($mutation in @(
+        @("c2010000", "associate_doorbell_ack_tag_invalid"),
+        @("d2010003", "associate_doorbell_ack_value_invalid")
+    )) {
+        try {
+            [void](Convert-AssociateDoorbellAck ([Convert]::ToUInt32($mutation[0], 16)))
+            throw "selftest_associate_doorbell_ack_mutation_not_rejected"
+        }
+        catch {
+            if ($_.Exception.Message -cne $mutation[1]) {
+                throw
+            }
         }
     }
 
@@ -711,7 +780,7 @@ function Invoke-SelfTest {
     [pscustomobject][ordered]@{
         schema = "raios.hw_failure_trace.extractor_selftest.v0"
         status = "passed"
-        checks = @("gpt_guid_known_vector", "gpt_guid_invalid_length_rejected", "powershell51_crc32", "crc32_mutation_rejected", "verified_readback", "k2_decoded", "connection_timeout_fingerprint_decoded", "connection_timeout_fingerprint_bit_mutation_rejected", "usb_diag_visible", "legacy_negative_usb_diag_rejected", "torn_rejected", "secret_field_rejected", "full_region_reported")
+        checks = @("gpt_guid_known_vector", "gpt_guid_invalid_length_rejected", "powershell51_crc32", "crc32_mutation_rejected", "verified_readback", "k2_decoded", "connection_timeout_fingerprint_decoded", "connection_timeout_fingerprint_bit_mutation_rejected", "associate_doorbell_ack_decoded", "associate_doorbell_ack_tag_mutation_rejected", "associate_doorbell_ack_value_mutation_rejected", "usb_diag_visible", "legacy_negative_usb_diag_rejected", "torn_rejected", "secret_field_rejected", "full_region_reported")
     } | ConvertTo-Json -Depth 4 -Compress
 }
 

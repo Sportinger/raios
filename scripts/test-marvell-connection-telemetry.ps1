@@ -355,7 +355,73 @@ function Test-ConnectionTimeoutFingerprint([string]$DriverText, [string]$TraceTe
         $timeoutAndMmioBoundariesRemain -and $packingIsComplete -and $traceRegisterIsStable
 }
 
+function Test-AssociateDoorbellAck([string]$DriverText) {
+    $layout = Slice-Between $DriverText "// Stable, secret-free Associate doorbell acknowledgement values" "fn queue_connection_timeout_trace"
+    $poll = Slice-Between $DriverText "pub fn poll_connection" "fn next_connection_phase"
+    $timeout = Slice-Between $poll "if elapsed_ms(job.phase_started_tsc) >= CONNECT_CMD_TIMEOUT_MS" "if !job.waiting"
+    $portTimeout = Slice-Between $poll "if job.phase == ConnectionStage::WaitPortRelease" "if elapsed_ms(job.phase_started_tsc) >= CONNECT_CMD_TIMEOUT_MS"
+    $completion = Slice-Between $poll "if status == u32::MAX" "if !terminal_quiesce_and_cleanup_while_gated"
+    $queue = Slice-Between $DriverText "fn queue_connection_timeout_trace" "#[repr(C, packed)]"
+
+    $stableValuesAndMapping = [regex]::IsMatch(
+        $layout,
+        'ASSOCIATE_DOORBELL_ACK_CLEARED:\s*u32\s*=\s*0xD201_0000.*ASSOCIATE_DOORBELL_ACK_STILL_SET:\s*u32\s*=\s*0xD201_0001.*ASSOCIATE_DOORBELL_ACK_UNAVAILABLE:\s*u32\s*=\s*0xD201_0002.*fn associate_doorbell_ack_trace_value\(cpu_int_status:\s*u32\)\s*->\s*u32.*cpu_int_status == u32::MAX.*ASSOCIATE_DOORBELL_ACK_UNAVAILABLE.*cpu_int_status & CPU_INTR_DOOR_BELL == 0.*ASSOCIATE_DOORBELL_ACK_CLEARED.*ASSOCIATE_DOORBELL_ACK_STILL_SET',
+        [Text.RegularExpressions.RegexOptions]::Singleline
+    )
+
+    $cpuStatusReadCount = [regex]::Matches($timeout, 'read_reg\(\s*mmio,\s*PCIE_CPU_INT_STATUS,?\s*\)').Count
+    $cpuStatusTokenCount = [regex]::Matches($timeout, 'PCIE_CPU_INT_STATUS').Count
+    $readAt = $timeout.IndexOf('PCIE_CPU_INT_STATUS', [StringComparison]::Ordinal)
+    $quarantineAt = $timeout.IndexOf('quarantine_connection_job(&job)', [StringComparison]::Ordinal)
+    $associateOnlySingleReadBeforeQuarantine = ($cpuStatusReadCount -eq 1) -and
+        ($cpuStatusTokenCount -eq 1) -and ($readAt -ge 0) -and ($quarantineAt -gt $readAt) -and
+        [regex]::IsMatch(
+            $timeout,
+            'let associate_doorbell_ack = if job\.phase == ConnectionStage::Associate\s*\{\s*Some\(associate_doorbell_ack_trace_value\(read_reg\(\s*mmio,\s*PCIE_CPU_INT_STATUS,?\s*\)\)\)\s*\}\s*else\s*\{\s*None\s*\};\s*let cleanup_verified = quarantine_connection_job',
+            [Text.RegularExpressions.RegexOptions]::Singleline
+        ) -and
+        -not [regex]::IsMatch($portTimeout, 'PCIE_CPU_INT_STATUS|associate_doorbell_ack')
+
+    $hostStepAt = $queue.IndexOf('register: HwFailureRegister::MarvellHostInterruptStatus', [StringComparison]::Ordinal)
+    $fingerprintStepAt = $queue.IndexOf('register: HwFailureRegister::MarvellConnectionTimeoutFingerprint', [StringComparison]::Ordinal)
+    $doorbellStepAt = $queue.IndexOf('register: HwFailureRegister::MarvellPublicationStep', [StringComparison]::Ordinal)
+    $thirdStepIsBoundedAndOneShot = ($hostStepAt -ge 0) -and ($fingerprintStepAt -gt $hostStepAt) -and
+        ($doorbellStepAt -gt $fingerprintStepAt) -and
+        ([regex]::Matches($queue, 'register:\s*HwFailureRegister::MarvellPublicationStep').Count -eq 1) -and
+        ([regex]::Matches($queue, 'usb::queue_hw_failure_trace\(').Count -eq 1) -and
+        [regex]::IsMatch(
+            $queue,
+            'response_class:\s*ConnectionTimeoutResponseClass,\s*associate_doorbell_ack:\s*Option<u32>.*register_value:\s*fingerprint.*if let Some\(register_value\) = associate_doorbell_ack.*status:\s*HwFailureStatus::Timeout.*register:\s*HwFailureRegister::MarvellPublicationStep.*register_value',
+            [Text.RegularExpressions.RegexOptions]::Singleline
+        ) -and
+        [regex]::IsMatch(
+            $timeout,
+            'queue_connection_timeout_trace\(\s*&job,\s*status,\s*cleanup_verified,\s*response_class,\s*associate_doorbell_ack,\s*\)',
+            [Text.RegularExpressions.RegexOptions]::Singleline
+        )
+
+    $completionDoesNotObserveDoorbell = -not [regex]::IsMatch(
+        $completion,
+        'PCIE_CPU_INT_STATUS|CPU_INTR_DOOR_BELL|associate_doorbell_ack|ASSOCIATE_DOORBELL_ACK|0xD201',
+        [Text.RegularExpressions.RegexOptions]::IgnoreCase
+    )
+    $classifierHasOneRuntimeUse = [regex]::Matches(
+        $DriverText,
+        'associate_doorbell_ack_trace_value\('
+    ).Count -eq 2
+    $secretFree = -not [regex]::IsMatch(
+        ($layout + $queue),
+        'connect_cmd_ptr|connect_rsp_ptr|cmd_dma_phys|rsp_dma_phys|job\.target|job\.secret_source|\bheader\.|payload|address|ssid|bssid|passphrase|pmk|security_ie',
+        [Text.RegularExpressions.RegexOptions]::IgnoreCase
+    )
+
+    $stableValuesAndMapping -and $associateOnlySingleReadBeforeQuarantine -and
+        $thirdStepIsBoundedAndOneShot -and $completionDoesNotObserveDoorbell -and
+        $classifierHasOneRuntimeUse -and $secretFree
+}
+
 Require (Test-ConnectionTimeoutFingerprint $driver $trace) "connection-timeout fingerprint layout, ordering, redaction, one-shot trace, or fail-closed boundary is incomplete"
+Require (Test-AssociateDoorbellAck $driver) "Associate doorbell ACK values, single-read placement, third-step ordering, redaction, or observational boundary is incomplete"
 $responseBeforeQuiesce = $driver.Replace(
     'let cleanup_verified = quarantine_connection_job(&job);',
     'let _early_response = connection_timeout_response_class_after_verified_cleanup(&job); let cleanup_verified = quarantine_connection_job(&job);'
@@ -365,6 +431,9 @@ $headerInsteadOfDone = $driver.Replace('marvell_wifi_cmd::host_cmd_done_is_curre
 Require (-not (Test-ConnectionTimeoutFingerprint $headerInsteadOfDone $trace)) "expected-header-seen as current-epoch CMD_DONE failure injection was accepted"
 $statusZeroInsteadOfDone = $driver.Replace('if !marvell_wifi_cmd::host_cmd_done_is_current(', 'if status == 0 && !marvell_wifi_cmd::host_cmd_done_is_current(')
 Require (-not (Test-ConnectionTimeoutFingerprint $statusZeroInsteadOfDone $trace)) "status zero as current-epoch CMD_DONE failure injection was accepted"
+$changedTimeout = $driver.Replace('const CONNECT_CMD_TIMEOUT_MS: u64 = 15_000;', 'const CONNECT_CMD_TIMEOUT_MS: u64 = 15_001;')
+Require ($changedTimeout -cne $driver) "timeout mutation fixture did not apply"
+Require (-not (Test-ConnectionTimeoutFingerprint $changedTimeout $trace)) "connection timeout change failure injection was accepted"
 $withoutOriginalHostInterruptStep = $driver.Replace('register: HwFailureRegister::MarvellHostInterruptStatus,', 'register: HwFailureRegister::None,')
 Require (-not (Test-ConnectionTimeoutFingerprint $withoutOriginalHostInterruptStep $trace)) "removing the original host-interrupt timeout step was accepted"
 $forbiddenTraceLeaks = @(
@@ -379,19 +448,62 @@ $forbiddenTraceLeaks = @(
 foreach ($leak in $forbiddenTraceLeaks) {
     $mutatedTrace = $driver.Replace('register_value: fingerprint,', ("register_value: " + $leak[1] + ","))
     Require (-not (Test-ConnectionTimeoutFingerprint $mutatedTrace $trace)) ("forbidden " + $leak[0] + " in the timeout trace failure injection was accepted")
+
+    $mutatedDoorbellTrace = $driver.Replace(
+        '                register_value,',
+        ("                register_value: " + $leak[1] + ",")
+    )
+    Require ($mutatedDoorbellTrace -cne $driver) ("forbidden doorbell " + $leak[0] + " mutation fixture did not apply")
+    Require (-not (Test-AssociateDoorbellAck $mutatedDoorbellTrace)) ("forbidden " + $leak[0] + " in the doorbell ACK trace failure injection was accepted")
 }
+
+$readAfterQuarantine = $driver.Replace(
+    'let cleanup_verified = quarantine_connection_job(&job);',
+    'let cleanup_verified = quarantine_connection_job(&job); let _late_doorbell = read_reg(mmio, PCIE_CPU_INT_STATUS);'
+)
+Require ($readAfterQuarantine -cne $driver) "post-quarantine doorbell mutation fixture did not apply"
+Require (-not (Test-AssociateDoorbellAck $readAfterQuarantine)) "doorbell read after quarantine failure injection was accepted"
+$readOutsideAssociate = $driver.Replace(
+    'let associate_doorbell_ack = if job.phase == ConnectionStage::Associate {',
+    'let associate_doorbell_ack = if job.phase != ConnectionStage::Associate {'
+)
+Require ($readOutsideAssociate -cne $driver) "non-Associate doorbell mutation fixture did not apply"
+Require (-not (Test-AssociateDoorbellAck $readOutsideAssociate)) "doorbell read in non-Associate phases failure injection was accepted"
+$secondDoorbellRead = $driver.Replace(
+    'Some(associate_doorbell_ack_trace_value(read_reg(',
+    'Some(associate_doorbell_ack_trace_value(read_reg(mmio, PCIE_CPU_INT_STATUS) | read_reg('
+)
+Require ($secondDoorbellRead -cne $driver) "second doorbell read mutation fixture did not apply"
+Require (-not (Test-AssociateDoorbellAck $secondDoorbellRead)) "second doorbell read failure injection was accepted"
+$doorbellAsCompletion = $driver.Replace(
+    'if !marvell_wifi_cmd::host_cmd_done_is_current(',
+    'if associate_doorbell_ack_trace_value(read_reg(mmio, PCIE_CPU_INT_STATUS)) == ASSOCIATE_DOORBELL_ACK_CLEARED || !marvell_wifi_cmd::host_cmd_done_is_current('
+)
+Require ($doorbellAsCompletion -cne $driver) "doorbell completion mutation fixture did not apply"
+Require (-not (Test-AssociateDoorbellAck $doorbellAsCompletion)) "doorbell acknowledgement as completion evidence failure injection was accepted"
+$mutatedDoorbellValue = $driver.Replace('0xD201_0001', '0xD201_0011')
+Require ($mutatedDoorbellValue -cne $driver) "doorbell value mutation fixture did not apply"
+Require (-not (Test-AssociateDoorbellAck $mutatedDoorbellValue)) "doorbell stable-value mutation failure injection was accepted"
+$mutatedUnavailableMapping = $driver.Replace('cpu_int_status == u32::MAX', 'cpu_int_status == 0')
+Require ($mutatedUnavailableMapping -cne $driver) "doorbell unavailable mapping mutation fixture did not apply"
+Require (-not (Test-AssociateDoorbellAck $mutatedUnavailableMapping)) "all-ones unavailable mapping failure injection was accepted"
 
 Require-Match $extractor 'k2_publication' "Windows extractor does not identify K2 publication records"
 Require-Match $extractor 'marvell_pci_command.*k2_publication_rejected' "Windows extractor does not decode K2 PCI/publication steps"
 Require-Match $extractor 'raios\.usb_diag\.v0.*usb_diagnostics' "Windows extractor does not surface usb_diag records"
 Require-Match $extractor 'function Convert-ConnectionTimeoutFingerprint.*connection_stage.*expected_command_id.*published_command_len.*request_header_matches_expected.*verified_quiesce_cleanup.*response_class' "Windows extractor does not decode every connection-timeout fingerprint field"
 Require-Match $extractor 'marvell_connection_timeout_fingerprint.*connection_timeout_fingerprint_tag_invalid' "Windows extractor lacks the dedicated timeout register name or mutation boundary"
+Require-Match $extractor 'function Convert-AssociateDoorbellAck.*d2010000.*cleared.*d2010001.*still_set.*d2010002.*unavailable.*associate_doorbell_ack_value_invalid' "Windows extractor does not strictly decode the three doorbell ACK values"
+Require-Match $extractor 'phase -eq 5.*status -eq 100.*register -eq 8.*associate_doorbell_ack' "Windows extractor does not type only the Associate timeout publication step as doorbell ACK"
 $extractorSelfTest = & powershell -NoProfile -ExecutionPolicy Bypass -File $extractorPath -SelfTest | ConvertFrom-Json
 Require ($extractorSelfTest.status -eq "passed") "Windows trace extractor self-test failed"
 Require (@($extractorSelfTest.checks) -contains "k2_decoded") "Windows extractor self-test does not cover K2 decoding"
 Require (@($extractorSelfTest.checks) -contains "usb_diag_visible") "Windows extractor self-test does not cover usb_diag visibility"
 Require (@($extractorSelfTest.checks) -contains "connection_timeout_fingerprint_decoded") "Windows extractor self-test does not cover the connection-timeout fingerprint"
 Require (@($extractorSelfTest.checks) -contains "connection_timeout_fingerprint_bit_mutation_rejected") "Windows extractor self-test does not reject a fingerprint bit mutation"
+Require (@($extractorSelfTest.checks) -contains "associate_doorbell_ack_decoded") "Windows extractor self-test does not decode the doorbell acknowledgement"
+Require (@($extractorSelfTest.checks) -contains "associate_doorbell_ack_tag_mutation_rejected") "Windows extractor self-test does not reject a doorbell ACK tag mutation"
+Require (@($extractorSelfTest.checks) -contains "associate_doorbell_ack_value_mutation_rejected") "Windows extractor self-test does not reject a doorbell ACK value mutation"
 
 $hwPoll = Slice-Between $driver "pub fn poll_hw_spec" "pub fn poll_scan_ext"
 $scanPoll = Slice-Between $driver "pub fn poll_scan_ext" "fn ensure_pci_memory_bus_master"

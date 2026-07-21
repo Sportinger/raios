@@ -325,11 +325,28 @@ const CONNECTION_TIMEOUT_COMMAND_LEN_SHIFT: u32 = 4;
 const CONNECTION_TIMEOUT_REQUEST_HEADER_MATCH: u32 = 1 << 3;
 const CONNECTION_TIMEOUT_CLEANUP_VERIFIED: u32 = 1 << 2;
 
+// Stable, secret-free Associate doorbell acknowledgement values. These are
+// publication diagnostics, not command completion or DMA-consumption proof.
+const ASSOCIATE_DOORBELL_ACK_CLEARED: u32 = 0xD201_0000;
+const ASSOCIATE_DOORBELL_ACK_STILL_SET: u32 = 0xD201_0001;
+const ASSOCIATE_DOORBELL_ACK_UNAVAILABLE: u32 = 0xD201_0002;
+
+const fn associate_doorbell_ack_trace_value(cpu_int_status: u32) -> u32 {
+    if cpu_int_status == u32::MAX {
+        ASSOCIATE_DOORBELL_ACK_UNAVAILABLE
+    } else if cpu_int_status & CPU_INTR_DOOR_BELL == 0 {
+        ASSOCIATE_DOORBELL_ACK_CLEARED
+    } else {
+        ASSOCIATE_DOORBELL_ACK_STILL_SET
+    }
+}
+
 fn queue_connection_timeout_trace(
     job: &ConnectionJob,
     host_int_status: u32,
     cleanup_verified: bool,
     response_class: ConnectionTimeoutResponseClass,
+    associate_doorbell_ack: Option<u32>,
 ) {
     let phase = if job.phase == ConnectionStage::Associate {
         HwFailurePhase::Associate
@@ -373,6 +390,20 @@ fn queue_connection_timeout_trace(
         .is_err()
     {
         return;
+    }
+    if let Some(register_value) = associate_doorbell_ack {
+        if trace
+            .push_step(HwFailureTraceStep {
+                boot_ms,
+                phase,
+                status: HwFailureStatus::Timeout,
+                register: HwFailureRegister::MarvellPublicationStep,
+                register_value,
+            })
+            .is_err()
+        {
+            return;
+        }
     }
     let _ = usb::queue_hw_failure_trace(trace);
 }
@@ -3429,6 +3460,14 @@ pub fn poll_connection() -> bool {
 
         if elapsed_ms(job.phase_started_tsc) >= CONNECT_CMD_TIMEOUT_MS {
             let status = read_reg(mmio, PCIE_HOST_INT_STATUS);
+            let associate_doorbell_ack = if job.phase == ConnectionStage::Associate {
+                Some(associate_doorbell_ack_trace_value(read_reg(
+                    mmio,
+                    PCIE_CPU_INT_STATUS,
+                )))
+            } else {
+                None
+            };
             let cleanup_verified = quarantine_connection_job(&job);
             let response_class = if cleanup_verified {
                 compiler_fence(Ordering::SeqCst);
@@ -3436,7 +3475,13 @@ pub fn poll_connection() -> bool {
             } else {
                 ConnectionTimeoutResponseClass::Unavailable
             };
-            queue_connection_timeout_trace(&job, status, cleanup_verified, response_class);
+            queue_connection_timeout_trace(
+                &job,
+                status,
+                cleanup_verified,
+                response_class,
+                associate_doorbell_ack,
+            );
             finish_connection_locked(
                 &mut runtime,
                 ConnectionResult::CommandTimeout,
