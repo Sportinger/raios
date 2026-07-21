@@ -103,6 +103,14 @@ function ConvertTo-Hex {
     return ([BitConverter]::ToString($Bytes)).Replace("-", "").ToLowerInvariant()
 }
 
+function ConvertFrom-GptTypeGuidBytes {
+    param([byte[]]$Bytes)
+    if ($null -eq $Bytes -or $Bytes.Length -ne 16) {
+        throw "gpt_type_guid_length_invalid"
+    }
+    return ([Guid]::new($Bytes)).ToString().ToLowerInvariant()
+}
+
 function Get-Crc32 {
     param([byte[]]$Bytes)
     # Windows PowerShell 5.1 parses 0xffffffff and 0xedb88320 as negative
@@ -201,7 +209,7 @@ function Assert-GptAndGetSeedData {
         if ($allZero) {
             continue
         }
-        $typeGuid = (New-Object Guid (,$typeBytes)).ToString().ToLowerInvariant()
+        $typeGuid = ConvertFrom-GptTypeGuidBytes -Bytes $typeBytes
         $name = [Text.Encoding]::Unicode.GetString($entryBytes, $offset + 56, 72).Trim([char]0)
         if ($name -in @("SEED_ESP_A", "SEED_ESP_B", "SEED_DATA")) {
             if ($required.ContainsKey($name)) {
@@ -531,6 +539,28 @@ function New-SelfTestFrame {
 }
 
 function Invoke-SelfTest {
+    $knownEspTypeBytes = [byte[]]@(
+        0x28, 0x73, 0x2a, 0xc1, 0x1f, 0xf8, 0xd2, 0x11,
+        0xba, 0x4b, 0x00, 0xa0, 0xc9, 0x3e, 0xc9, 0x3b
+    )
+    $knownEspEntry = New-Object byte[] $GptEntrySize
+    [Array]::Copy($knownEspTypeBytes, 0, $knownEspEntry, 0, 16)
+    $actualEspTypeGuid = ConvertFrom-GptTypeGuidBytes -Bytes (Get-Slice $knownEspEntry 0 16)
+    if ($actualEspTypeGuid -cne $EspTypeGuid) {
+        throw "selftest_gpt_guid_known_vector_failed"
+    }
+    foreach ($invalidGuidLength in @(15, 17)) {
+        try {
+            [void](ConvertFrom-GptTypeGuidBytes -Bytes (New-Object byte[] $invalidGuidLength))
+            throw "selftest_gpt_guid_invalid_length_not_rejected"
+        }
+        catch {
+            if ($_.Exception.Message -cne "gpt_type_guid_length_invalid") {
+                throw
+            }
+        }
+    }
+
     $legacyCrcVector = [Text.Encoding]::ASCII.GetBytes("123456789")
     $expectedLegacyCrc = [Convert]::ToUInt32("cbf43926", 16)
     if ((Get-Crc32 $legacyCrcVector) -ne $expectedLegacyCrc) {
@@ -608,7 +638,7 @@ function Invoke-SelfTest {
     [pscustomobject][ordered]@{
         schema = "raios.hw_failure_trace.extractor_selftest.v0"
         status = "passed"
-        checks = @("powershell51_crc32", "crc32_mutation_rejected", "verified_readback", "k2_decoded", "usb_diag_visible", "legacy_negative_usb_diag_rejected", "torn_rejected", "secret_field_rejected", "full_region_reported")
+        checks = @("gpt_guid_known_vector", "gpt_guid_invalid_length_rejected", "powershell51_crc32", "crc32_mutation_rejected", "verified_readback", "k2_decoded", "usb_diag_visible", "legacy_negative_usb_diag_rejected", "torn_rejected", "secret_field_rejected", "full_region_reported")
     } | ConvertTo-Json -Depth 4 -Compress
 }
 
