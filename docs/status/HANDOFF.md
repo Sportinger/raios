@@ -3,7 +3,7 @@
 > Window, not log: exactly one Now, one Next step, and three Recently entries.
 > Replace on update; never append. Keep under 60 lines and roughly 2 KB.
 
-## Now (2026-07-21 ~13:20, root orchestrator active)
+## Now (2026-07-21 ~14:10, root orchestrator active)
 
 H23 hardware-proved the timeout fingerprint. SanDisk `0101d57ec458c24f1b93`
 has three valid chained frames, a clean zero tail, and USB `errors=0`. At 60.857
@@ -23,28 +23,28 @@ Then run `scripts/extract-hw-failure-trace.ps1 -DiskNumber 2
 Never pass an erase confirmation. Latest JSON is
 `%TEMP%\raios-h23-reclog-after-f77ca05-20260721T1313.json`.
 
-Two reviews returned `PROBE_REQUIRED`. ADR 0036 selects the observation-only H24
-Associate-doorbell ACK probe; the post-PMK canary remains fallback. Its exact
-order is in isolated worktree `raios-h24-doorbell-ack-d3ea68d`; no product diff.
-
-H24 is owner-blocked: Codex `gpt-5.6-sol` and `gpt-5.5` both hit the account
-limit before touching files. Reset: 2026-07-27 02:41; credits may unblock
-earlier. Claude substitution and root implementation are forbidden.
+ADR 0036 selected the observation-only H24 Associate-doorbell ACK probe; the
+post-PMK canary remains fallback. Commit `37a2b15` reads
+`PCIE_CPU_INT_STATUS` exactly once on the real Associate timeout before
+quarantine and appends one secret-free value: `0xD2010000` cleared,
+`0xD2010001` still set, or `0xD2010002` unavailable. ACK is never completion or
+DMA-consumption proof. Extractor/mutations, 61 Marvell tests, 16 DMA tests,
+ephemeral boundary, release build, and final read-only ACCEPT are green; pushed
+on `main`.
 
 ## Next step
 
-Owner: restore Codex worker capacity, then rerun
-`target/orchestrator-orders/h24-associate-doorbell-ack.md` in the isolated H24
-worktree. Verify, commit, push, package, then perform one cold boot. No same-boot
-Retry after quarantine.
+Package and write H24 from `37a2b15`, verify both slots and readback, then perform
+one cold Surface boot and start Wi-Fi once. No same-boot Retry after quarantine;
+on failure power down and extract RECLOG before rewrite.
 
 ## Recently (exactly 3, newest first)
+
+### 2026-07-21 — `37a2b15` adds the H24 doorbell ACK probe
+One pre-quarantine read; three bounded outcomes; no behavior change.
 
 ### 2026-07-21 — H23 response stayed untouched
 Correct `0x0012` header; verified cleanup; no response or CMD_DONE.
 
 ### 2026-07-21 — H23 Surface stick prepared
 Policy, firmware, A/B, SEED_DATA, and readback green.
-
-### 2026-07-21 — `f77ca05` adds the H23 timeout fingerprint
-The bounded trace records header class only after verified terminal cleanup.
