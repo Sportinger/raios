@@ -20,6 +20,22 @@ export default {
       return Response.redirect(url.toString(), 308);
     }
 
-    return env.ASSETS.fetch(request);
+    const assetResponse = await env.ASSETS.fetch(request);
+    const headers = new Headers(assetResponse.headers);
+    const contentType = (headers.get("Content-Type") || "").toLowerCase();
+
+    if (contentType.startsWith("text/html")) {
+      headers.set("Cache-Control", "no-store");
+      headers.set("Pragma", "no-cache");
+      headers.set("Expires", "0");
+    } else {
+      headers.set("Cache-Control", "public, max-age=0, must-revalidate");
+    }
+
+    return new Response(assetResponse.body, {
+      status: assetResponse.status,
+      statusText: assetResponse.statusText,
+      headers,
+    });
   },
 };

@@ -1,5 +1,6 @@
 param(
-    [string]$OutputDirectory = "pages-dist"
+    [string]$OutputDirectory = "pages-dist",
+    [string]$BuildVersion = $env:RAIOS_BUILD_VERSION
 )
 
 $ErrorActionPreference = "Stop"
@@ -51,7 +52,64 @@ Copy-Item -LiteralPath (Join-Path (Join-Path $assetsSource "surface") "surface-r
 Copy-Item -Path (Join-Path $assetsSource "audio\*") -Destination $audioAssets
 Copy-Item -LiteralPath (Join-Path (Join-Path $repoRoot "cloudflare") "pages-worker.mjs") -Destination (Join-Path $outputPath "_worker.js")
 
+$effectiveBuildVersion = $BuildVersion.Trim()
+if (-not $effectiveBuildVersion) {
+    $manifestLines = @(
+        Get-ChildItem -LiteralPath $outputPath -Recurse -File |
+            Sort-Object FullName |
+            ForEach-Object {
+                $relativePath = $_.FullName.Substring($outputPath.Length).TrimStart([char[]]"\/").Replace("\", "/")
+                $fileHash = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+                "$relativePath=$fileHash"
+            }
+    )
+    $manifestBytes = [Text.Encoding]::UTF8.GetBytes($manifestLines -join "`n")
+    $sha256 = [Security.Cryptography.SHA256]::Create()
+    try {
+        $effectiveBuildVersion = ([BitConverter]::ToString($sha256.ComputeHash($manifestBytes))).Replace("-", "").ToLowerInvariant()
+    } finally {
+        $sha256.Dispose()
+    }
+}
+$effectiveBuildVersion = [regex]::Replace($effectiveBuildVersion, '[^A-Za-z0-9._-]', '-').Trim('-')
+if (-not $effectiveBuildVersion) {
+    throw "Build version must contain at least one URL-safe character"
+}
+if ($effectiveBuildVersion.Length -gt 12) {
+    $effectiveBuildVersion = $effectiveBuildVersion.Substring(0, 12)
+}
+
 $html = Get-Content -Raw -LiteralPath (Join-Path $outputPath "index.html")
+$html = [regex]::Replace(
+    $html,
+    '(?<prefix>\b(?:src|href)=")(?<url>[^"]+)(?<suffix>")',
+    {
+        param($match)
+        $reference = $match.Groups['url'].Value
+        if ($reference -match '^(?:https?:|#|data:|mailto:|javascript:)' ) {
+            return $match.Value
+        }
+        $pathOnly = ($reference -split '[?#]', 2)[0]
+        if (-not [IO.Path]::GetExtension($pathOnly)) {
+            return $match.Value
+        }
+        $fragmentIndex = $reference.IndexOf('#')
+        $referenceWithoutFragment = if ($fragmentIndex -ge 0) {
+            $reference.Substring(0, $fragmentIndex)
+        } else {
+            $reference
+        }
+        $fragment = if ($fragmentIndex -ge 0) { $reference.Substring($fragmentIndex) } else { "" }
+        $separator = if ($referenceWithoutFragment.Contains('?')) { '&' } else { '?' }
+        $versionedReference = "$referenceWithoutFragment${separator}v=$effectiveBuildVersion$fragment"
+        return "$($match.Groups['prefix'].Value)$versionedReference$($match.Groups['suffix'].Value)"
+    }
+)
+[IO.File]::WriteAllText(
+    (Join-Path $outputPath "index.html"),
+    $html,
+    [Text.UTF8Encoding]::new($false)
+)
 $references = @(
     [regex]::Matches($html, '(?:src|href)="([^"]+)"') |
         ForEach-Object { $_.Groups[1].Value } |
@@ -83,4 +141,5 @@ if ($largest.Length -gt 25MB) {
     LargestFile = $largest.Name
     LargestBytes = $largest.Length
     ReferencedAssets = $references.Count
+    BuildVersion = $effectiveBuildVersion
 }

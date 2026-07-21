@@ -40,7 +40,9 @@ jobs:
 
       - name: Build public site
         shell: pwsh
-        run: ./scripts/build-pages-site.ps1
+        env:
+          RAIOS_BUILD_VERSION: ${{ github.sha }}
+        run: ./scripts/build-pages-site.ps1 -BuildVersion $env:RAIOS_BUILD_VERSION
 
       - name: Deploy production site
         env:

@@ -38,6 +38,8 @@ pwsh ./scripts/build-pages-site.ps1
 
 Das Skript erzeugt `pages-dist/` und führt dabei grundlegende Prüfungen für referenzierte Dateien und die Cloudflare-Dateigrößenbegrenzung aus. Die Quelldatei `raios-ui-lab.html` wird im Build als `index.html` veröffentlicht.
 
+Der Build hängt eine Versionskennung an lokale CSS-, JavaScript- und Medien-URLs. Im Deployment wird dafür der Git-Commit verwendet; lokale Builds erzeugen automatisch einen Inhalts-Hash. Der Pages-Worker liefert HTML mit `Cache-Control: no-store` aus, damit ein normaler Browser-Refresh stets den aktuellen Einstiegspunkt lädt.
+
 ## Deployment
 
 Änderungen an den Website-Dateien auf `website` werden über [GitHub Actions](.github/workflows/deploy-raios-pages.yml) in den Cloudflare-Pages-Branch `website` des Projekts `raios-site` deployt. Die produktive Domain ist [raios.tech](https://raios.tech).

@@ -21,7 +21,8 @@ Keine entfernten OS-Bestandteile neu anlegen oder aus anderen Branches übernehm
 - `ui-lab/core/` enthält gemeinsam verwendete Modelle und Zeichenprimitiven.
 - `ui-lab/surfaces/` enthält die einzelnen Oberflächen und Abläufe.
 - `ui-lab/assets/` enthält ausschließlich tatsächlich verwendete Medien.
-- `scripts/build-pages-site.ps1` erzeugt den Inhalt von `pages-dist/`.
+- `scripts/build-pages-site.ps1` erzeugt den Inhalt von `pages-dist/` und versieht lokale HTML-Asset-Referenzen mit einer Build-Version.
+- `cloudflare/pages-worker.mjs` steuert kanonische Weiterleitungen und Browser-Cache-Header. HTML muss bei einem normalen Refresh frisch geladen werden.
 
 ## Regeln für Änderungen
 
@@ -54,6 +55,7 @@ Für dieses Website-Repository ist keine QEMU-Prüfung erforderlich. QEMU- oder 
 - Keine fremden Änderungen verwerfen, zurücksetzen oder überschreiben.
 - Nicht committen oder pushen, außer der Nutzer verlangt es ausdrücklich.
 - Ein Push relevanter Website-Pfade auf `website` startet den Workflow `.github/workflows/deploy-raios-pages.yml` und kann die produktive Website verändern. Der Workflow deployt dabei ausdrücklich den Cloudflare-Pages-Branch `website`.
+- Der Deployment-Workflow übergibt den Git-Commit als `RAIOS_BUILD_VERSION`; lokale Builds verwenden ersatzweise einen reproduzierbaren Inhalts-Hash.
 - Vor einem angeforderten Push muss der Produktions-Build erfolgreich durchlaufen.
 
 ## Dokumentation
