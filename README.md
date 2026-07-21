@@ -264,13 +264,14 @@ raiOS holds a small set of architectural principles that override convenience:
 
 Everything above describes the product as designed — most of it is running and
 verified today, the rest is landing now. This section is the honest build
-cursor.
+snapshot.
 
 This README intentionally stays compact. It describes the product thesis and
 durable current shape, not the active engineering cursor or every verified
-predicate. Read `docs/status/STATUS.md` for the authoritative detailed state,
-exact next task, latest VM reports, known gaps, and implementation history;
-read `docs/plans/` for the active category plans.
+predicate. Read `docs/status/HANDOFF.md` for the current engineering cursor and
+exact next task; read `docs/status/STATUS.md` for the detailed capability,
+evidence, and gap projection; read `docs/status/OWNER_DASHBOARD.md` for the
+concise owner view; and read `docs/plans/` for the active category plans.
 
 Stable current shape:
 
@@ -325,10 +326,10 @@ Still intentionally missing:
 Document map:
 
 - `docs/SCOPE.md`: binding product scope
-- `docs/status/STATUS.md`: current state, exact next task, latest reports, and gaps
+- `docs/status/HANDOFF.md`: current engineering cursor and exact next task
+- `docs/status/STATUS.md`: detailed capability, evidence, and gap projection
 - `docs/plans/`: active plans, one per scope category
-- `docs/status/OWNER_DASHBOARD.md`: one page, plain language, current capability
-  and gate status
+- `docs/status/OWNER_DASHBOARD.md`: concise owner view in plain language
 - `docs/agents/DEBUGGING.md`: build, run, smoke-test, protocol-probe, and failure-mode
   commands
 - `docs/architecture/decisions/`: durable protocol and memory decisions
