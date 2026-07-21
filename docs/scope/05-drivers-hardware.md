@@ -10,12 +10,11 @@
 - [ ] Negative test: driver domain cannot reach any foreign device or region
 - [ ] Emits RECLOG diagnostics; failure states are machine-readable
 
-Evidence 2026-07-21: H22 retained HID and left three valid chained RECLOG
-frames with a clean zero tail and USB `errors=0`. The terminal frame at 75.789
-seconds identified `Associate(5)`, `CommandTimeout(100)`, and
-`MarvellHostInterruptStatus=0`. The diagnostic path therefore ran on hardware,
-but one in-kernel failure record does not prove the common driver-domain logging
-contract; the box stays open.
+Evidence 2026-07-21: H23 retained HID and left three valid chained RECLOG frames
+with a clean zero tail and USB `errors=0`. The terminal frame contains the host
+status plus a bounded association-timeout fingerprint after verified cleanup.
+The diagnostic path therefore ran on hardware, but one in-kernel failure record
+does not prove the common driver-domain logging contract; the box stays open.
 
 ## Wi-Fi (Marvell 88W8897)
 - [ ] Firmware load + handshake from inside the domain
@@ -34,8 +33,11 @@ firmware stayed `0xfedcba00`, Supplicant Profile and PMK completed, and the
 third command `ASSOCIATE_CMD 0x0012` timed out without `CMD_DONE`. Commit
 `f77ca05` adds a bounded secret-free timeout fingerprint after verified cleanup;
 focused tests, mutations, extractor selftest, release build, and independent
-read-only acceptance are green. The path is still in-kernel; connection,
-traffic, domain execution, IOMMU fencing, and safe kill/restart remain open.
+read-only acceptance are green. H23 hardware-proved it: command `0x0012`, length
+132, and the expected request header were published; quiesce/cleanup succeeded,
+but the response header remained `untouched_zero` and no `CMD_DONE` arrived.
+The path is still in-kernel; connection, traffic, domain execution, IOMMU
+fencing, and safe kill/restart remain open.
 
 ## USB stack
 - [ ] Host controller domain; hotplug events surface as typed events
