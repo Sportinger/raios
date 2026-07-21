@@ -97,6 +97,22 @@ const K2_PUBLICATION_STEP_MODEL_ENABLE: u32 = 2;
 const K2_PUBLICATION_STEP_DOORBELL: u32 = 4;
 const K2_PUBLICATION_STEP_CHECKPOINT_FLUSH: u32 = 5;
 
+// Stable MarvellPublicationStep payload for data-ring failures:
+// 0xD1KK_DDDD, where KK is the failing ring/publication operation and DDDD is
+// only a decoder class or a bounded descriptor index. Raw pointers, DMA
+// contents, request metadata, and authority data are deliberately excluded.
+const DATA_RING_DIAG_EVENT_WR_DECODE: u32 = 0xD101_0000;
+const DATA_RING_DIAG_EVENT_DMA_TRANSLATION: u32 = 0xD102_0000;
+const DATA_RING_DIAG_RX_WR_TX_RD_DECODE: u32 = 0xD103_0000;
+const DATA_RING_DIAG_RX_DMA_TRANSLATION: u32 = 0xD104_0000;
+const DATA_RING_DIAG_HOST_EVENT_RD_PUBLICATION: u32 = 0xD105_0000;
+const DATA_RING_DIAG_SHARED_RX_TX_PUBLICATION: u32 = 0xD106_0000;
+const DATA_RING_DIAG_EXISTING_EVENT_FAILURE: u32 = 0xD107_0000;
+const DATA_RING_DIAG_EXISTING_RX_FAILURE: u32 = 0xD108_0000;
+const DATA_RING_DIAG_DECODER_ALL_ONES: u32 = 1;
+const DATA_RING_DIAG_DECODER_RESERVED_BITS: u32 = 2;
+const DATA_RING_DIAG_DECODER_INDEX_OUT_OF_RANGE: u32 = 3;
+
 fn fixed_hw_failure_trace(
     phase: HwFailurePhase,
     status: HwFailureStatus,
@@ -183,6 +199,88 @@ fn queue_k2_publication_terminal(
     register_value: u32,
 ) {
     queue_fixed_hw_failure_trace(phase, status, register, register_value);
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum DataRingFailure {
+    EventWriteDecode(DevicePointerError),
+    EventDmaTranslation { index: usize },
+    RxWriteTxReadDecode(DevicePointerError),
+    RxDmaTranslation { index: usize },
+    HostEventReadPublication(DevicePointerError),
+    SharedRxTxPublication(DevicePointerError),
+    ExistingEventFailure(Option<EventRingResult>),
+    ExistingRxFailure(Option<RxRingResult>),
+}
+
+impl DataRingFailure {
+    const fn diagnostic_code(self) -> u32 {
+        match self {
+            Self::EventWriteDecode(error) => {
+                DATA_RING_DIAG_EVENT_WR_DECODE | data_ring_decoder_class(error)
+            }
+            Self::EventDmaTranslation { index } => {
+                DATA_RING_DIAG_EVENT_DMA_TRANSLATION | index as u32
+            }
+            Self::RxWriteTxReadDecode(error) => {
+                DATA_RING_DIAG_RX_WR_TX_RD_DECODE | data_ring_decoder_class(error)
+            }
+            Self::RxDmaTranslation { index } => DATA_RING_DIAG_RX_DMA_TRANSLATION | index as u32,
+            Self::HostEventReadPublication(error) => {
+                DATA_RING_DIAG_HOST_EVENT_RD_PUBLICATION | data_ring_decoder_class(error)
+            }
+            Self::SharedRxTxPublication(error) => {
+                DATA_RING_DIAG_SHARED_RX_TX_PUBLICATION | data_ring_decoder_class(error)
+            }
+            Self::ExistingEventFailure(result) => {
+                DATA_RING_DIAG_EXISTING_EVENT_FAILURE | event_ring_result_class(result)
+            }
+            Self::ExistingRxFailure(result) => {
+                DATA_RING_DIAG_EXISTING_RX_FAILURE | rx_ring_result_class(result)
+            }
+        }
+    }
+}
+
+const fn data_ring_decoder_class(error: DevicePointerError) -> u32 {
+    match error {
+        DevicePointerError::AllOnes => DATA_RING_DIAG_DECODER_ALL_ONES,
+        DevicePointerError::ReservedBits => DATA_RING_DIAG_DECODER_RESERVED_BITS,
+        DevicePointerError::IndexOutOfRange => DATA_RING_DIAG_DECODER_INDEX_OUT_OF_RANGE,
+    }
+}
+
+const fn event_ring_result_class(result: Option<EventRingResult>) -> u32 {
+    match result {
+        None => 0,
+        Some(EventRingResult::Armed) => 1,
+        Some(EventRingResult::DmaAddressUnavailable) => 2,
+        Some(EventRingResult::BadReadPointer) => 3,
+        Some(EventRingResult::BadEventLength) => 4,
+        Some(EventRingResult::PointerAdvancedEmptyBuffer) => 5,
+        Some(EventRingResult::EventObserved) => 6,
+    }
+}
+
+const fn rx_ring_result_class(result: Option<RxRingResult>) -> u32 {
+    match result {
+        None => 0,
+        Some(RxRingResult::Armed) => 1,
+        Some(RxRingResult::DmaAddressUnavailable) => 2,
+        Some(RxRingResult::BadReadPointer) => 3,
+        Some(RxRingResult::BadRxLength) => 4,
+        Some(RxRingResult::PointerAdvancedEmptyBuffer) => 5,
+        Some(RxRingResult::PacketObserved) => 6,
+    }
+}
+
+fn queue_data_ring_failure_trace(phase: HwFailurePhase, failure: DataRingFailure) {
+    queue_fixed_hw_failure_trace(
+        phase,
+        HwFailureStatus::TransportFault,
+        HwFailureRegister::MarvellPublicationStep,
+        failure.diagnostic_code(),
+    );
 }
 
 #[repr(align(64))]
@@ -1157,12 +1255,14 @@ struct EventRingRuntime {
     snapshot: EventRingSnapshot,
     mmio_base: Option<usize>,
     rdptr: u32,
+    arm_failure: Option<DataRingFailure>,
 }
 
 struct RxRingRuntime {
     snapshot: RxRingSnapshot,
     mmio_base: Option<usize>,
     rdptr: u32,
+    arm_failure: Option<DataRingFailure>,
 }
 
 struct TxRingRuntime {
@@ -1192,6 +1292,7 @@ impl EventRingRuntime {
             snapshot: EventRingSnapshot::new(),
             mmio_base: None,
             rdptr: EVENT_ROLLOVER_IND,
+            arm_failure: None,
         }
     }
 }
@@ -1202,6 +1303,7 @@ impl RxRingRuntime {
             snapshot: RxRingSnapshot::new(),
             mmio_base: None,
             rdptr: RX_ROLLOVER_IND,
+            arm_failure: None,
         }
     }
 }
@@ -2087,7 +2189,8 @@ fn start_association_inner(
         if connection_reboot_required() {
             return GatedAssociationStart::Fail(ConnectionResult::RebootRequired);
         }
-        if !arm_data_rings_while_gated(mmio_base) {
+        if let Err(failure) = arm_data_rings_while_gated(mmio_base) {
+            queue_data_ring_failure_trace(HwFailurePhase::LinkBringup, failure);
             return GatedAssociationStart::Fail(ConnectionResult::DataRingUnavailable);
         }
         let (Some(cmd_dma_phys), Some(rsp_dma_phys)) = (connect_cmd_phys(), connect_rsp_phys())
@@ -2837,7 +2940,13 @@ pub fn poll_hw_spec() -> bool {
                         job.waiting = false;
                         job.phase_started_tsc = time::rdtsc();
                         if next == HwSpecStage::Ready {
-                            if !publish_data_ring_pointers_while_gated(job.mmio_base) {
+                            if let Err(failure) =
+                                publish_data_ring_pointers_while_gated(job.mmio_base)
+                            {
+                                queue_data_ring_failure_trace(
+                                    HwFailurePhase::HardwareSpec,
+                                    failure,
+                                );
                                 finish_hw_spec_locked(
                                     &mut runtime,
                                     HwSpecResult::DataRingUnavailable,
@@ -4223,7 +4332,8 @@ fn arm_hw_spec_after_firmware_ready_while_gated(mmio_base: usize, pci_address: p
         return;
     }
 
-    if !arm_data_rings_while_gated(mmio_base) {
+    if let Err(failure) = arm_data_rings_while_gated(mmio_base) {
+        queue_data_ring_failure_trace(HwFailurePhase::HardwareSpec, failure);
         finish_hw_spec_locked(
             &mut runtime,
             HwSpecResult::DataRingUnavailable,
@@ -4301,15 +4411,25 @@ fn arm_hw_spec_after_firmware_ready_while_gated(mmio_base: usize, pci_address: p
     });
 }
 
-fn arm_event_ring_while_gated(mmio_base: usize) {
+fn arm_event_ring_while_gated(mmio_base: usize) -> Result<(), DataRingFailure> {
     let mut runtime = EVENT_RING.lock();
     if runtime.snapshot.attempted {
-        return;
+        if let Some(failure) = runtime.arm_failure {
+            return Err(failure);
+        }
+        return if runtime.mmio_base.is_some() && !runtime.snapshot.is_failed() {
+            Ok(())
+        } else {
+            Err(DataRingFailure::ExistingEventFailure(
+                runtime.snapshot.result,
+            ))
+        };
     }
     let mmio = mmio_base as *mut u8;
     let host_int_status = read_reg(mmio, PCIE_HOST_INT_STATUS);
     let wrptr = read_reg(mmio, PCIE_EVT_WR_PTR);
-    if decode_event_pointer(wrptr).is_err() {
+    if let Err(error) = decode_event_pointer(wrptr) {
+        let failure = DataRingFailure::EventWriteDecode(error);
         runtime.snapshot = EventRingSnapshot {
             attempted: true,
             armed: false,
@@ -4322,14 +4442,16 @@ fn arm_event_ring_while_gated(mmio_base: usize) {
             event_type: 0,
             event_cause: 0,
         };
+        runtime.arm_failure = Some(failure);
         drop(runtime);
         quarantine_invalid_pointer_after_ring_unlock_while_gated(mmio, "EVENT-WR", wrptr);
-        return;
+        return Err(failure);
     }
 
     let mut index = 0usize;
     while index < EVENT_RING_COUNT {
         let Some(data_phys) = event_data_phys(index) else {
+            let failure = DataRingFailure::EventDmaTranslation { index };
             runtime.snapshot = EventRingSnapshot {
                 attempted: true,
                 armed: false,
@@ -4337,8 +4459,9 @@ fn arm_event_ring_while_gated(mmio_base: usize) {
                 result: Some(EventRingResult::DmaAddressUnavailable),
                 ..EventRingSnapshot::new()
             };
+            runtime.arm_failure = Some(failure);
             serial::write_line("marvell wifi: event ring arm failed: dma_address_unavailable");
-            return;
+            return Err(failure);
         };
         unsafe {
             // SAFETY: EVENT_RING_DMA_BLOCK is the driver's fixed event DMA
@@ -4374,17 +4497,26 @@ fn arm_event_ring_while_gated(mmio_base: usize) {
         event_cause: 0,
     };
     serial::write_line("marvell wifi: event ring prepared for descriptor registration");
+    Ok(())
 }
 
-fn arm_rx_ring_while_gated(mmio_base: usize) -> bool {
+fn arm_rx_ring_while_gated(mmio_base: usize) -> Result<(), DataRingFailure> {
     let mut runtime = RX_RING.lock();
     if runtime.snapshot.attempted {
-        return runtime.snapshot.armed;
+        if let Some(failure) = runtime.arm_failure {
+            return Err(failure);
+        }
+        return if runtime.snapshot.armed {
+            Ok(())
+        } else {
+            Err(DataRingFailure::ExistingRxFailure(runtime.snapshot.result))
+        };
     }
     let mmio = mmio_base as *mut u8;
     let host_int_status = read_reg(mmio, PCIE_HOST_INT_STATUS);
     let wrptr = read_reg(mmio, PCIE_RX_WR_PTR);
-    if decode_rx_tx_pointer_register(wrptr).is_err() {
+    if let Err(error) = decode_rx_tx_pointer_register(wrptr) {
+        let failure = DataRingFailure::RxWriteTxReadDecode(error);
         runtime.snapshot = RxRingSnapshot {
             attempted: true,
             armed: false,
@@ -4396,13 +4528,15 @@ fn arm_rx_ring_while_gated(mmio_base: usize) -> bool {
             rx_len: 0,
             rx_type: 0,
         };
+        runtime.arm_failure = Some(failure);
         drop(runtime);
         quarantine_invalid_pointer_after_ring_unlock_while_gated(mmio, "RX-WR/TX-RD", wrptr);
-        return false;
+        return Err(failure);
     }
     let mut index = 0usize;
     while index < RX_RING_COUNT {
         let Some(data_phys) = rx_data_phys(index) else {
+            let failure = DataRingFailure::RxDmaTranslation { index };
             runtime.snapshot = RxRingSnapshot {
                 attempted: true,
                 armed: false,
@@ -4410,7 +4544,8 @@ fn arm_rx_ring_while_gated(mmio_base: usize) -> bool {
                 result: Some(RxRingResult::DmaAddressUnavailable),
                 ..RxRingSnapshot::new()
             };
-            return false;
+            runtime.arm_failure = Some(failure);
+            return Err(failure);
         };
         unsafe {
             // SAFETY: RX_RING_DMA_BLOCK is the driver's fixed RX DMA storage;
@@ -4444,7 +4579,7 @@ fn arm_rx_ring_while_gated(mmio_base: usize) -> bool {
         rx_len: 0,
         rx_type: 0,
     };
-    true
+    Ok(())
 }
 
 fn arm_tx_ring_while_gated(mmio_base: usize) -> bool {
@@ -4469,13 +4604,11 @@ fn arm_tx_ring_while_gated(mmio_base: usize) -> bool {
     true
 }
 
-fn arm_data_rings_while_gated(mmio_base: usize) -> bool {
-    arm_event_ring_while_gated(mmio_base);
-    let event_ready = {
-        let runtime = EVENT_RING.lock();
-        runtime.mmio_base.is_some() && !runtime.snapshot.is_failed()
-    };
-    event_ready && arm_rx_ring_while_gated(mmio_base) && arm_tx_ring_while_gated(mmio_base)
+fn arm_data_rings_while_gated(mmio_base: usize) -> Result<(), DataRingFailure> {
+    arm_event_ring_while_gated(mmio_base)?;
+    arm_rx_ring_while_gated(mmio_base)?;
+    let _ = arm_tx_ring_while_gated(mmio_base);
+    Ok(())
 }
 
 fn plan_shared_rx_tx_pointer(
@@ -4520,33 +4653,33 @@ fn publish_prepared_shared_rx_tx_pointer_while_gated(mmio_base: *mut u8, next_ra
     compiler_fence(Ordering::SeqCst);
 }
 
-fn publish_data_ring_pointers_while_gated(mmio_base: usize) -> bool {
+fn publish_data_ring_pointers_while_gated(mmio_base: usize) -> Result<(), DataRingFailure> {
     let event_rdptr = {
         let runtime = EVENT_RING.lock();
         runtime.rdptr
     };
     let rx_rdptr = RX_RING.lock().rdptr;
     let tx_wrptr = TX_RING.lock().wrptr;
-    if decode_event_pointer(event_rdptr).is_err() {
+    if let Err(error) = decode_event_pointer(event_rdptr) {
         quarantine_invalid_pointer_after_ring_unlock_while_gated(
             mmio_base as *mut u8,
             "host EVENT-RD",
             event_rdptr,
         );
-        return false;
+        return Err(DataRingFailure::HostEventReadPublication(error));
     }
     let shared_raw = match plan_shared_rx_tx_pointer(
         0,
         SharedRxTxPointerUpdate::Initialize { rx_rdptr, tx_wrptr },
     ) {
         Ok(raw) => raw,
-        Err(_) => {
+        Err(error) => {
             quarantine_invalid_pointer_after_ring_unlock_while_gated(
                 mmio_base as *mut u8,
                 "host RX-RD/TX-WR",
                 rx_rdptr | tx_wrptr,
             );
-            return false;
+            return Err(DataRingFailure::SharedRxTxPublication(error));
         }
     };
     EVENT_RING.lock().snapshot.armed = true;
@@ -4556,7 +4689,7 @@ fn publish_data_ring_pointers_while_gated(mmio_base: usize) -> bool {
     write_reg(mmio, PCIE_EVT_RD_PTR, event_rdptr);
     publish_prepared_shared_rx_tx_pointer_while_gated(mmio, shared_raw);
     compiler_fence(Ordering::SeqCst);
-    true
+    Ok(())
 }
 
 fn finish_hw_spec_locked(
@@ -4568,7 +4701,7 @@ fn finish_hw_spec_locked(
     fw_release: Option<u32>,
 ) {
     let previous = runtime.snapshot;
-    if stage == HwSpecStage::Failed {
+    if stage == HwSpecStage::Failed && result != HwSpecResult::DataRingUnavailable {
         let status = match result {
             HwSpecResult::CmdDoneTimeout => HwFailureStatus::Timeout,
             HwSpecResult::Response(HwSpecCmdError::FwResult { .. })

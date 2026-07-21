@@ -251,6 +251,38 @@ Require-Match $usb 'msc_write_sector_from_buffer\(point\.lba\)\?.*msc_read_secto
 
 Require-Match $trace 'K2CheckpointPersistFailed = 110.*K2PublicationRejected = 111.*K2PciCommandRejected = 112.*MarvellPciCommand = 7.*MarvellPublicationStep = 8' "dedicated terminal K2 status/register codes are missing"
 Require-Match $driver 'HwFailureStatus::K2CheckpointPersistFailed.*HwFailureStatus::K2PublicationRejected.*HwFailureStatus::K2PciCommandRejected' "K2 terminal paths still collapse to generic TransportFault"
+
+function Test-DataRingFailureDiagnostics([string]$Text) {
+    $diagnostic = Slice-Between $Text "// Stable MarvellPublicationStep payload" "#[repr(align(64))]"
+    $eventArm = Slice-Between $Text "fn arm_event_ring_while_gated" "fn arm_rx_ring_while_gated"
+    $rxArm = Slice-Between $Text "fn arm_rx_ring_while_gated" "fn arm_tx_ring_while_gated"
+    $publish = Slice-Between $Text "fn publish_data_ring_pointers_while_gated" "fn finish_hw_spec_locked"
+    $hwStart = Slice-Between $Text "fn arm_hw_spec_after_firmware_ready_while_gated" "fn arm_event_ring_while_gated"
+    $hwPoll = Slice-Between $Text "pub fn poll_hw_spec" "pub fn poll_scan_ext"
+    $hwFinish = Slice-Between $Text "fn finish_hw_spec_locked" "fn finish_scan_without_job"
+    $association = Slice-Between $Text "fn start_association_inner" "fn same_connection_target"
+    $queueHelper = Slice-Between $Text "fn queue_data_ring_failure_trace" "#[repr(align(64))]"
+
+    $codesAreFixed = [regex]::IsMatch($diagnostic, '0xD1KK_DDDD.*decoder class or a bounded descriptor index.*DATA_RING_DIAG_EVENT_WR_DECODE:\s*u32\s*=\s*0xD101_0000.*DATA_RING_DIAG_EVENT_DMA_TRANSLATION:\s*u32\s*=\s*0xD102_0000.*DATA_RING_DIAG_RX_WR_TX_RD_DECODE:\s*u32\s*=\s*0xD103_0000.*DATA_RING_DIAG_RX_DMA_TRANSLATION:\s*u32\s*=\s*0xD104_0000.*DATA_RING_DIAG_HOST_EVENT_RD_PUBLICATION:\s*u32\s*=\s*0xD105_0000.*DATA_RING_DIAG_SHARED_RX_TX_PUBLICATION:\s*u32\s*=\s*0xD106_0000.*DATA_RING_DIAG_DECODER_ALL_ONES:\s*u32\s*=\s*1.*DATA_RING_DIAG_DECODER_RESERVED_BITS:\s*u32\s*=\s*2.*DATA_RING_DIAG_DECODER_INDEX_OUT_OF_RANGE:\s*u32\s*=\s*3', [Text.RegularExpressions.RegexOptions]::Singleline)
+    $decoderClassesAreComplete = [regex]::IsMatch($diagnostic, 'DevicePointerError::AllOnes\s*=>\s*DATA_RING_DIAG_DECODER_ALL_ONES.*DevicePointerError::ReservedBits\s*=>\s*DATA_RING_DIAG_DECODER_RESERVED_BITS.*DevicePointerError::IndexOutOfRange\s*=>\s*DATA_RING_DIAG_DECODER_INDEX_OUT_OF_RANGE', [Text.RegularExpressions.RegexOptions]::Singleline)
+    $causeMapIsComplete = [regex]::IsMatch($diagnostic, 'Self::EventWriteDecode\(error\).*DATA_RING_DIAG_EVENT_WR_DECODE\s*\|\s*data_ring_decoder_class\(error\).*Self::EventDmaTranslation\s*\{\s*index\s*\}.*DATA_RING_DIAG_EVENT_DMA_TRANSLATION\s*\|\s*index as u32.*Self::RxWriteTxReadDecode\(error\).*DATA_RING_DIAG_RX_WR_TX_RD_DECODE\s*\|\s*data_ring_decoder_class\(error\).*Self::RxDmaTranslation\s*\{\s*index\s*\}.*DATA_RING_DIAG_RX_DMA_TRANSLATION\s*\|\s*index as u32.*Self::HostEventReadPublication\(error\).*DATA_RING_DIAG_HOST_EVENT_RD_PUBLICATION\s*\|\s*data_ring_decoder_class\(error\).*Self::SharedRxTxPublication\(error\).*DATA_RING_DIAG_SHARED_RX_TX_PUBLICATION\s*\|\s*data_ring_decoder_class\(error\)', [Text.RegularExpressions.RegexOptions]::Singleline)
+    $eventCausePropagates = [regex]::IsMatch($eventArm, 'if let Err\(error\) = decode_event_pointer\(wrptr\).*EventWriteDecode\(error\).*arm_failure = Some\(failure\).*return Err\(failure\).*event_data_phys\(index\).*EventDmaTranslation \{ index \}.*arm_failure = Some\(failure\).*return Err\(failure\)', [Text.RegularExpressions.RegexOptions]::Singleline)
+    $rxCausePropagates = [regex]::IsMatch($rxArm, 'if let Err\(error\) = decode_rx_tx_pointer_register\(wrptr\).*RxWriteTxReadDecode\(error\).*arm_failure = Some\(failure\).*return Err\(failure\).*rx_data_phys\(index\).*RxDmaTranslation \{ index \}.*arm_failure = Some\(failure\).*return Err\(failure\)', [Text.RegularExpressions.RegexOptions]::Singleline)
+    $publicationCausePropagates = [regex]::IsMatch($publish, 'if let Err\(error\) = decode_event_pointer\(event_rdptr\).*quarantine_invalid_pointer_after_ring_unlock_while_gated.*HostEventReadPublication\(error\).*Err\(error\).*quarantine_invalid_pointer_after_ring_unlock_while_gated.*SharedRxTxPublication\(error\)', [Text.RegularExpressions.RegexOptions]::Singleline)
+    $oneQueueHelper = ([regex]::Matches($queueHelper, 'queue_fixed_hw_failure_trace\(').Count -eq 1) -and [regex]::IsMatch($queueHelper, 'HwFailureStatus::TransportFault.*HwFailureRegister::MarvellPublicationStep.*failure\.diagnostic_code\(\)', [Text.RegularExpressions.RegexOptions]::Singleline)
+    $oneHardwareSpecTrace = ([regex]::Matches($hwStart, 'queue_data_ring_failure_trace\(').Count -eq 1) -and ([regex]::Matches($hwPoll, 'queue_data_ring_failure_trace\(').Count -eq 1) -and [regex]::IsMatch($hwStart, 'Err\(failure\).*queue_data_ring_failure_trace.*finish_hw_spec_locked.*DataRingUnavailable', [Text.RegularExpressions.RegexOptions]::Singleline) -and [regex]::IsMatch($hwPoll, 'Err\(failure\).*queue_data_ring_failure_trace.*finish_hw_spec_locked.*DataRingUnavailable', [Text.RegularExpressions.RegexOptions]::Singleline) -and [regex]::IsMatch($hwFinish, 'stage == HwSpecStage::Failed\s*&&\s*result != HwSpecResult::DataRingUnavailable.*queue_fixed_hw_failure_trace', [Text.RegularExpressions.RegexOptions]::Singleline)
+    $associationHasOneTrace = ([regex]::Matches($association, 'queue_data_ring_failure_trace\(').Count -eq 1) -and [regex]::IsMatch($association, 'Err\(failure\).*queue_data_ring_failure_trace.*ConnectionResult::DataRingUnavailable', [Text.RegularExpressions.RegexOptions]::Singleline)
+    $secretFree = -not [regex]::IsMatch($diagnostic, 'ssid|bssid|passphrase|pmk|security_ie|connect_cmd_ptr|connect_rsp_ptr|secret_source|target\.', [Text.RegularExpressions.RegexOptions]::IgnoreCase)
+
+    $codesAreFixed -and $decoderClassesAreComplete -and $causeMapIsComplete -and
+        $eventCausePropagates -and $rxCausePropagates -and $publicationCausePropagates -and
+        $oneQueueHelper -and $oneHardwareSpecTrace -and $associationHasOneTrace -and $secretFree
+}
+
+Require (Test-DataRingFailureDiagnostics $driver) "data-ring failure codes, propagation, redaction, or exactly-one trace behavior are incomplete"
+$swappedRxDmaCause = $driver.Replace('DATA_RING_DIAG_RX_DMA_TRANSLATION | index as u32', 'DATA_RING_DIAG_EVENT_DMA_TRANSLATION | index as u32')
+Require (-not (Test-DataRingFailureDiagnostics $swappedRxDmaCause)) "swapped RX-DMA cause mapping failure injection was accepted"
+
 Require-Match $extractor 'k2_publication' "Windows extractor does not identify K2 publication records"
 Require-Match $extractor 'marvell_pci_command.*k2_publication_rejected' "Windows extractor does not decode K2 PCI/publication steps"
 Require-Match $extractor 'raios\.usb_diag\.v0.*usb_diagnostics' "Windows extractor does not surface usb_diag records"
