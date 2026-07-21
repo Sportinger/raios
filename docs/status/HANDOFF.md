@@ -23,11 +23,15 @@ Then run `scripts/extract-hw-failure-trace.ps1 -DiskNumber 2
 Never pass an erase confirmation. Latest JSON is
 `%TEMP%\raios-h23-reclog-after-f77ca05-20260721T1313.json`.
 
+Two independent reviews returned `PROBE_REQUIRED` but proposed different
+experiments. ADR 0036 selects the observation-only H24 Associate-doorbell ACK
+probe; the post-PMK liveness canary remains the next fallback.
+
 ## Next step
 
-Obtain two fresh neutral read-only Codex opinions on the untouched-response
-boundary, choose the narrow H24 repair or probe, then verify, commit, push,
-package, and perform one cold boot. No same-boot Retry after quarantine.
+Implement and verify the single-read H24 doorbell-ACK trace, commit and push the
+accepted slice, package it, then perform one cold boot. No same-boot Retry after
+quarantine.
 
 ## Recently (exactly 3, newest first)
 
