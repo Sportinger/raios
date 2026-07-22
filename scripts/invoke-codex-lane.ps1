@@ -117,6 +117,44 @@ function ConvertTo-NativeArgument {
     return '"' + $quoted + '"'
 }
 
+function Resolve-CodexChildStartPlan {
+    param([string]$ChildCommand, [string[]]$ChildArguments, [string]$PowerShellHostPathOverride = "")
+    try { $resolved = @(Get-Command $ChildCommand -ErrorAction Stop)[0] }
+    catch { Throw-LaneGateDenial "codex_command_missing" "Codex child command is unavailable" $ChildCommand }
+
+    $commandPath = [string]$resolved.Path
+    if ([string]::IsNullOrWhiteSpace($commandPath)) { $commandPath = [string]$resolved.Source }
+    try { $commandPath = [IO.Path]::GetFullPath($commandPath) }
+    catch { Throw-LaneGateDenial "codex_command_unsupported" "Codex child command does not resolve to a canonical file" $ChildCommand }
+    $extension = [IO.Path]::GetExtension($commandPath).ToLowerInvariant()
+
+    if ($resolved.CommandType -eq [Management.Automation.CommandTypes]::Application -and $extension -ceq ".exe") {
+        return [pscustomobject]@{ file_name = $commandPath; arguments = [string[]]@($ChildArguments); command_type = [string]$resolved.CommandType; command_path = $commandPath }
+    }
+    if ($resolved.CommandType -ne [Management.Automation.CommandTypes]::ExternalScript -or $extension -cne ".ps1") {
+        Throw-LaneGateDenial "codex_command_unsupported" "Codex child command must resolve to a native .exe or a PowerShell .ps1 shim" ([ordered]@{ command_type = [string]$resolved.CommandType; path = $commandPath })
+    }
+
+    $hostCandidate = if ($PowerShellHostPathOverride) { $PowerShellHostPathOverride } elseif ($PSVersionTable.PSEdition -ceq "Core") {
+        Join-Path $PSHOME "pwsh.exe"
+    } else { Join-Path $PSHOME "powershell.exe" }
+    try { $hostPath = [IO.Path]::GetFullPath($hostCandidate) }
+    catch { Throw-LaneGateDenial "codex_powershell_host_missing" "Native PowerShell host for the Codex shim is unavailable" $hostCandidate }
+    if ([IO.Path]::GetExtension($hostPath).ToLowerInvariant() -cne ".exe" -or -not [IO.File]::Exists($hostPath)) {
+        Throw-LaneGateDenial "codex_powershell_host_missing" "Native PowerShell host for the Codex shim is unavailable" $hostPath
+    }
+    $payloadJson = [ordered]@{ script_path = $commandPath; arguments = [string[]]@($ChildArguments) } | ConvertTo-Json -Compress
+    $payloadBase64 = [Convert]::ToBase64String((New-Object Text.UTF8Encoding($false)).GetBytes($payloadJson))
+    $bootstrap = '$json=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String("' + $payloadBase64 + '"));$data=$json|ConvertFrom-Json;$argv=[string[]]$data.arguments;$raw=[Console]::In.ReadToEnd();if(-not $raw.EndsWith("`r`n")){exit 125};$raw.Substring(0,$raw.Length-2)|& ([string]$data.script_path) @argv;exit $LASTEXITCODE'
+    $encodedCommand = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($bootstrap))
+    return [pscustomobject]@{
+        file_name = $hostPath
+        arguments = [string[]]@("-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", $encodedCommand)
+        command_type = [string]$resolved.CommandType
+        command_path = $commandPath
+    }
+}
+
 function Assert-LaneGateInputs {
     param([string]$Order, [string]$MachineId, [string]$Digest, [string[]]$FactPaths, [string]$SandboxName, [string]$Report)
     if ([string]::IsNullOrWhiteSpace($Order)) { Throw-LaneGateDenial "order_path_missing" "OrderPath is required" }
@@ -292,6 +330,7 @@ function Invoke-CodexLaneGate {
         [string]$GovernanceException = "", [string]$Adr0045DecisionPathOverride = "", [string]$Adr0045ClaimPathOverride = "",
         [AllowNull()][scriptblock]$Adr0045PreStartHook = $null,
         [string]$ManifestPathOverride = "", [string]$ChildCommand = "codex", [string[]]$ChildPrefixArguments = @(),
+        [string]$PowerShellHostPathOverride = "",
         [switch]$SimulateStdinWriteFailure, [switch]$SimulateStdinCloseFailure, [switch]$SimulateWaitFailure,
         [string]$PostStartReadyPath = "", [AllowNull()][scriptblock]$ReaderFactory = $null
     )
@@ -299,6 +338,9 @@ function Invoke-CodexLaneGate {
     $useAdr0045Exception = $null -ne $exceptionBinding
     if (($Adr0045ClaimPathOverride -or $null -ne $Adr0045PreStartHook) -and -not $LauncherSelfTest) {
         Throw-LaneGateDenial "governance_exception_selftest_hook_forbidden" "ADR-0045 claim overrides and pre-start hooks are available only inside launcher selftests"
+    }
+    if ($PowerShellHostPathOverride -and -not $LauncherSelfTest) {
+        Throw-LaneGateDenial "codex_powershell_host_override_forbidden" "PowerShell host override is available only inside launcher selftests"
     }
     Assert-LaneGateInputs $Order $MachineId $Digest $FactPaths $SandboxName $Report
     $orderFullPath = Get-AbsolutePath $Order
@@ -367,17 +409,18 @@ function Invoke-CodexLaneGate {
             $contextJson = $context | ConvertTo-Json -Depth 20 -Compress
             $contextJson = $contextJson.Replace('<', '\u003c').Replace('>', '\u003e')
             if ([string]::IsNullOrWhiteSpace($contextJson) -or $contextJson.Length -gt $MachineContextMaxChars) { throw "Rendered machine context exceeds the $MachineContextMaxChars-character bound" }
-            $prompt = $orderText.TrimEnd() + "`r`n`r`n<raios-machine-context>`r`n" + $contextJson + "`r`n</raios-machine-context>"
+            $prompt = $orderText.TrimEnd() + "`r`n`r`n<raios-machine-context>`r`n" + $contextJson + "`r`n</raios-machine-context>`r`n"
         } catch {
             if ($_.Exception.Data["reason"]) { throw }
             Throw-LaneGateDenial "prompt_render_failed" "Bounded lane prompt could not be rendered" $_.Exception.Message
         }
-        try { $resolvedChild = (Get-Command $ChildCommand -ErrorAction Stop).Source }
-        catch { Throw-LaneGateDenial "codex_command_missing" "Codex child command is unavailable" $ChildCommand }
-
-        $arguments = @($ChildPrefixArguments) + @("exec", "-s", $SandboxName, "-C", $LauncherRepoRoot, "--ephemeral", "-o", $reportFullPath, "-")
+        # Freeze the native executable and structured shim prefix before any
+        # one-shot claim is created. Nothing is resolved again after this gate.
+        $childArguments = @($ChildPrefixArguments) + @("exec", "-s", $SandboxName, "-C", $LauncherRepoRoot, "--ephemeral", "-o", $reportFullPath, "-")
+        $startPlan = Resolve-CodexChildStartPlan $ChildCommand $childArguments $PowerShellHostPathOverride
+        $arguments = @($startPlan.arguments)
         $startInfo = New-Object Diagnostics.ProcessStartInfo
-        $startInfo.FileName = $resolvedChild
+        $startInfo.FileName = $startPlan.file_name
         $startInfo.Arguments = (@($arguments | ForEach-Object { ConvertTo-NativeArgument ([string]$_) }) -join " ")
         $startInfo.UseShellExecute = $false
         $startInfo.RedirectStandardInput = $true
@@ -630,7 +673,7 @@ public static class Adr0045AtomicClaimRace {
         $expectedFacts = @(); foreach ($path in $required) { $fact = Resolve-MachineManifestFact $qemu $path; $expectedFacts += [ordered]@{ path = $path; status = $fact.status; value = $fact.value; provenance = $fact.provenance } }
         $expectedContext = [ordered]@{ schema = "raios.machine_curated_context.v1"; machine_manifest = "qemu-q35-shadow@sha256:$qemuDigest"; required_fact_paths = @($required); facts = @($expectedFacts) }
         $expectedContextJson = ($expectedContext | ConvertTo-Json -Depth 20 -Compress).Replace('<', '\u003c').Replace('>', '\u003e')
-        $expectedPrompt = $orderContent.TrimEnd() + "`r`n`r`n<raios-machine-context>`r`n" + $expectedContextJson + "`r`n</raios-machine-context>"
+        $expectedPrompt = $orderContent.TrimEnd() + "`r`n`r`n<raios-machine-context>`r`n" + $expectedContextJson + "`r`n</raios-machine-context>`r`n"
         $expectedArgs = @("exec", "-s", "workspace-write", "-C", $LauncherRepoRoot, "--ephemeral", "-o", ([IO.Path]::GetFullPath($report)), "-")
         $argsExact = (@($receivedArgs) -join "`0") -ceq ($expectedArgs -join "`0")
         $promptExact = $receivedPrompt -ceq $expectedPrompt
@@ -646,6 +689,39 @@ public static class Adr0045AtomicClaimRace {
             "bad_provenance=$(@($facts.Values | Where-Object { $_.provenance.machine_id -cne 'qemu-q35-shadow' -or [string]::IsNullOrWhiteSpace($_.provenance.source_ref) }).Count)")
         $cases.Add([ordered]@{ name = "positive-one-fake-child-with-exact-context"; expected_reason = "accepted"; actual_reason = if ($positivePassed) { "accepted" } else { "positive_assertion_failed" }; child_invocation_count = Get-InvocationCount; passed = $positivePassed; detail_codes = $positiveDetails })
 
+        $shim = Join-Path $tempRoot "fake-codex.ps1"
+        $shimArgsPath = Join-Path $tempRoot "fake-codex-shim-args.txt"
+        $escapedFake = $fake.Replace("'", "''")
+        $escapedShimArgsPath = $shimArgsPath.Replace("'", "''")
+        $shimSource = "[IO.File]::WriteAllLines('$escapedShimArgsPath', [string[]]`$args)`r`nif (`$MyInvocation.ExpectingInput) { `$input | & '$escapedFake' @args } else { & '$escapedFake' @args }`r`nexit `$LASTEXITCODE`r`n"
+        [IO.File]::WriteAllText($shim, $shimSource, (New-Object Text.UTF8Encoding($false)))
+        Reset-Sentinel
+        $shimPlan = Resolve-CodexChildStartPlan $shim $expectedArgs
+        $shimDispatch = Invoke-CodexLaneGate $order "qemu-q35-shadow" $qemuDigest $required "workspace-write" $report $Schema -ChildCommand $shim
+        $shimArgs = [IO.File]::ReadAllLines($argsPath); $shimPrompt = Get-Content -Raw -LiteralPath $promptPath
+        $shimBoundaryArgs = [IO.File]::ReadAllLines($shimArgsPath)
+        $shimArgsExact = (@($shimArgs) -join "`0") -ceq ($expectedArgs -join "`0")
+        $shimBoundaryArgsExact = (@($shimBoundaryArgs) -join "`0") -ceq ($expectedArgs -join "`0")
+        $shimPromptExact = $shimPrompt -ceq $expectedPrompt
+        $shimPassed = (Get-InvocationCount) -eq 1 -and $shimDispatch.child_started -and $shimArgsExact -and $shimBoundaryArgsExact -and $shimPromptExact -and
+            [IO.Path]::GetExtension([string]$shimPlan.file_name).ToLowerInvariant() -ceq ".exe" -and
+            [IO.Path]::GetExtension([string]$shimPlan.command_path).ToLowerInvariant() -ceq ".ps1" -and
+            ([string]$shimPlan.file_name -cne [string]$shimPlan.command_path)
+        $cases.Add([ordered]@{ name = "windows-powershell-shim-one-child-exact-argv-stdin"; expected_reason = "native_host_exact_handoff";
+            actual_reason = if ($shimPassed) { "native_host_exact_handoff" } else { "shim_handoff_assertion_failed" };
+            child_started = $shimDispatch.child_started; child_invocation_count = Get-InvocationCount; passed = $shimPassed;
+            detail_codes = @("native=$($shimPlan.file_name)", "shim=$($shimPlan.command_path)", "shim_boundary_argv_exact=$shimBoundaryArgsExact", "child_argv_exact=$shimArgsExact", "stdin_exact=$shimPromptExact", "stdin_expected_chars=$($expectedPrompt.Length)", "stdin_actual_chars=$($shimPrompt.Length)") })
+
+        $unsupported = Join-Path $tempRoot "fake-codex.cmd"
+        [IO.File]::WriteAllText($unsupported, "@echo off`r`nexit /b 0`r`n", (New-Object Text.UTF8Encoding($false)))
+        Run-Denial "windows-command-script-is-never-direct-file-name" {
+            Invoke-CodexLaneGate $order "qemu-q35-shadow" $qemuDigest $required "workspace-write" $report $Schema -ChildCommand $unsupported
+        } "codex_command_unsupported"
+        $missingHost = Join-Path $tempRoot "missing-powershell.exe"
+        Run-Denial "windows-powershell-host-missing-before-child-or-claim" {
+            Invoke-CodexLaneGate $order "qemu-q35-shadow" $qemuDigest $required "workspace-write" $report $Schema -ChildCommand $shim -PowerShellHostPathOverride $missingHost
+        } "codex_powershell_host_missing"
+
         $malformed = Join-Path $tempRoot "malformed.json"; [IO.File]::WriteAllText($malformed, '{', (New-Object Text.UTF8Encoding($false))); $malformedDigest = Get-TestFileDigest $malformed
         Run-Denial "malformed-json" { Invoke-CodexLaneGate $order "qemu-q35-shadow" $malformedDigest $required "workspace-write" $report $Schema -ManifestPathOverride $malformed -ChildCommand $fake } "manifest_json_invalid"
         $m = Copy-JsonObject (Get-Content -Raw -LiteralPath $qemuPath | ConvertFrom-Json); $m | Add-Member unexpected $true; $path = Write-Mutant "additional" $m; $digest = Get-TestFileDigest $path
@@ -658,8 +734,15 @@ public static class Adr0045AtomicClaimRace {
 
         $exceptionFactPaths = @($Adr0045FactPath)
         $authoritySourcePath = Join-Path $LauncherRepoRoot $Adr0045DecisionRelativePath
-        $r3AuthorityBytes = [IO.File]::ReadAllBytes($authoritySourcePath)
+        $currentAuthorityBytes = [IO.File]::ReadAllBytes($authoritySourcePath)
         $strictUtf8 = New-Object Text.UTF8Encoding($false, $true)
+        $currentAuthorityText = $strictUtf8.GetString($currentAuthorityBytes)
+        $recoverySectionMarker = "## R3-Dispatch-Recovery-Erweiterung (2026-07-22)"
+        $recoverySectionIndex = $currentAuthorityText.IndexOf($recoverySectionMarker, [StringComparison]::Ordinal)
+        if ($recoverySectionIndex -lt 2 -or $currentAuthorityText[$recoverySectionIndex - 1] -ne "`n" -or $currentAuthorityText[$recoverySectionIndex - 2] -ne "`n") {
+            throw "ADR-0045 R3 authority prefix cannot be reconstructed exactly inside the selftest"
+        }
+        $r3AuthorityBytes = $strictUtf8.GetBytes($currentAuthorityText.Substring(0, $recoverySectionIndex - 1))
         $r3AuthorityText = $strictUtf8.GetString($r3AuthorityBytes)
         $r3SectionMarker = "## R3-Erweiterung (2026-07-22)"
         $r3SectionIndex = $r3AuthorityText.IndexOf($r3SectionMarker, [StringComparison]::Ordinal)
@@ -710,7 +793,7 @@ public static class Adr0045AtomicClaimRace {
         $expectedExceptionContext["governance_exception_adr_sha256"] = $Adr0045DecisionSha256
         $expectedExceptionJson = ($expectedExceptionContext | ConvertTo-Json -Depth 20 -Compress).Replace('<', '\u003c').Replace('>', '\u003e')
         $crlf = [string][char]13 + [string][char]10
-        $expectedExceptionPrompt = $exceptionOrderContent.TrimEnd() + $crlf + $crlf + "<raios-machine-context>" + $crlf + $expectedExceptionJson + $crlf + "</raios-machine-context>"
+        $expectedExceptionPrompt = $exceptionOrderContent.TrimEnd() + $crlf + $crlf + "<raios-machine-context>" + $crlf + $expectedExceptionJson + $crlf + "</raios-machine-context>" + $crlf
         $expectedExceptionArgs = @("exec", "-s", "workspace-write", "-C", $LauncherRepoRoot, "--ephemeral", "-o", ([IO.Path]::GetFullPath($report)), "-")
         $exceptionArgsExact = (@($exceptionArgs) -join [char]0) -ceq ($expectedExceptionArgs -join [char]0)
         $exceptionPromptExact = $exceptionPrompt -ceq $expectedExceptionPrompt
@@ -821,7 +904,7 @@ public static class Adr0045AtomicClaimRace {
         $expectedR2Context["governance_exception"] = $Adr0045R2ExceptionToken
         $expectedR2Context["governance_exception_adr_sha256"] = $Adr0045R2DecisionSha256
         $expectedR2Json = ($expectedR2Context | ConvertTo-Json -Depth 20 -Compress).Replace('<', '\u003c').Replace('>', '\u003e')
-        $expectedR2Prompt = $r2ExceptionOrderContent.TrimEnd() + $crlf + $crlf + "<raios-machine-context>" + $crlf + $expectedR2Json + $crlf + "</raios-machine-context>"
+        $expectedR2Prompt = $r2ExceptionOrderContent.TrimEnd() + $crlf + $crlf + "<raios-machine-context>" + $crlf + $expectedR2Json + $crlf + "</raios-machine-context>" + $crlf
         $r2ArgsExact = (@($r2Args) -join [char]0) -ceq ($expectedExceptionArgs -join [char]0)
         $r2PromptExact = $r2Prompt -ceq $expectedR2Prompt
         $r2ClaimExact = $null -ne $r2Claim -and $r2Claim.schema -ceq "raios.adr0045_h26_r2_claim.v1" -and
@@ -910,6 +993,18 @@ public static class Adr0045AtomicClaimRace {
         $r2ClaimBytesBeforeR3 = [IO.File]::ReadAllBytes($r2ClaimPath)
         $r3ClaimPath = Join-Path $tempRoot "adr0045-r3-positive.claim"
         [IO.File]::WriteAllText($order, $r3ExceptionOrderContent, (New-Object Text.UTF8Encoding($false)))
+        $r3UnsupportedClaimPath = Join-Path $tempRoot "adr0045-r3-unsupported-command.claim"
+        Run-Denial "adr0045-r3-unsupported-command-denies-before-claim" {
+            Invoke-CodexLaneGate $order $Adr0045MachineId $surfaceDigest $exceptionFactPaths "workspace-write" $report $Schema `
+                -GovernanceException $Adr0045R3ExceptionToken -Adr0045DecisionPathOverride $r3ExceptionAdrPath -Adr0045ClaimPathOverride $r3UnsupportedClaimPath `
+                -ManifestPathOverride $surfacePath -ChildCommand $unsupported
+        } "codex_command_unsupported" "" { -not [IO.File]::Exists($r3UnsupportedClaimPath) }
+        $r3MissingHostClaimPath = Join-Path $tempRoot "adr0045-r3-missing-host.claim"
+        Run-Denial "adr0045-r3-missing-host-denies-before-claim" {
+            Invoke-CodexLaneGate $order $Adr0045MachineId $surfaceDigest $exceptionFactPaths "workspace-write" $report $Schema `
+                -GovernanceException $Adr0045R3ExceptionToken -Adr0045DecisionPathOverride $r3ExceptionAdrPath -Adr0045ClaimPathOverride $r3MissingHostClaimPath `
+                -ManifestPathOverride $surfacePath -ChildCommand $shim -PowerShellHostPathOverride $missingHost
+        } "codex_powershell_host_missing" "" { -not [IO.File]::Exists($r3MissingHostClaimPath) }
         Reset-Sentinel
         $r3Dispatch = Invoke-CodexLaneGate $order $Adr0045MachineId $surfaceDigest $exceptionFactPaths "workspace-write" $report $Schema `
             -GovernanceException $Adr0045R3ExceptionToken -Adr0045DecisionPathOverride $r3ExceptionAdrPath -Adr0045ClaimPathOverride $r3ClaimPath `
@@ -927,7 +1022,7 @@ public static class Adr0045AtomicClaimRace {
         $expectedR3Context["governance_exception"] = $Adr0045R3ExceptionToken
         $expectedR3Context["governance_exception_adr_sha256"] = $Adr0045R3DecisionSha256
         $expectedR3Json = ($expectedR3Context | ConvertTo-Json -Depth 20 -Compress).Replace('<', '\u003c').Replace('>', '\u003e')
-        $expectedR3Prompt = $r3ExceptionOrderContent.TrimEnd() + $crlf + $crlf + "<raios-machine-context>" + $crlf + $expectedR3Json + $crlf + "</raios-machine-context>"
+        $expectedR3Prompt = $r3ExceptionOrderContent.TrimEnd() + $crlf + $crlf + "<raios-machine-context>" + $crlf + $expectedR3Json + $crlf + "</raios-machine-context>" + $crlf
         $r3ArgsExact = (@($r3Args) -join [char]0) -ceq ($expectedExceptionArgs -join [char]0)
         $r3PromptExact = $r3Prompt -ceq $expectedR3Prompt
         $r3ClaimExact = $null -ne $r3Claim -and $r3Claim.schema -ceq "raios.adr0045_h26_r3_claim.v1" -and
