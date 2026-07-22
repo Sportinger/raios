@@ -3,47 +3,49 @@
 > Window, not log: one Now, one Next step, three Recently entries. Replace on
 > update; never append. Keep under 60 lines and roughly 2 KB.
 
-## Now (2026-07-22, SMBIOS-substage USB ready)
+## Now (2026-07-22, Genesis-unblock USB ready)
 
 Canonical `main` is `C:\Users\admin\Documents\raios2-main` at pushed
-`ec1aea1`. The detached old root `C:\Users\admin\Documents\raios2` remains
+`b18f272`. The detached old root `C:\Users\admin\Documents\raios2` remains
 foreign WIP; never clean, reset, merge, or integrate it. Worktree is clean.
 
-The `f3850bb` Surface boot reached SC and then SS, proving CPUID completed and
-the stall is inside `capture_smbios()` before MemoryMap/PCI/USB. After power-off,
-read-only extraction revalidated the expected SanDisk USB disk 1, serial
-`0101d57ec458c24f1b93`, GPT and SEED_DATA, but again found RECLOG
-`valid_frame_count=0`, `tail_status=zero_tail`, no diagnostics or facts.
+The `ec1aea1` hardware run stayed visibly at yellow SI. This proves CPUID and
+the SS checkpoint completed, then the first physical SMBIOS entry-point slice
+faulted before ST/SR/MemoryMap/PCI/USB. Repeated earlier returned sticks had
+zero-tail RECLOG because USB was never reached; another empty extraction was
+not useful for this deterministic pre-USB fault.
 
-`ec1aea1` adds value-free SMBIOS substages: SI immediately before the first
-entry-point slice in either exclusive 32/64-bit branch, ST immediately before
-the table slice, and SR immediately before the parser. Existing SMBIOS work,
-five slice calls and validation remain unchanged. Missing/reorder mutations,
-the freestanding release build, `git diff --check`, and fresh independent
-read-only review are green; review verdict is ACCEPT.
+`b18f272` adds fieldless `PhysicalSmbiosAccessPolicy::{Reject, Allow}` and makes
+the normal boot select Reject. After SS, capture returns the static error before
+SI, Limine option access, `capture_smbios` or any physical slice. The entire
+capture is discarded; main then retains its existing EB2 -> `usb::init` -> EB3
+-> EB4F route and continues toward Genesis/WLAN. No partial facts can append;
+the bounded Allow implementation remains unchanged for future explicit use.
+
+Reject-to-Allow and late-Reject source mutations, early-boot and capture
+predicates, freestanding release build, `git diff --check`, unsafe inventory,
+and fresh independent read-only review are green; review verdict is ACCEPT.
 
 The firmware-bearing payload uses kernel SHA-256
-`dd970b8aafbd614cc988895bca933b59a1e130ed2967d24423261856d694d194`;
+`803e4c0df649cfc3435358b9db440a4ee2996308c26ede05cc9a30f6d6bf0f6c`;
 Core Policy A/generation 1 and Marvell firmware verified. It was written to the
-revalidated SanDisk disk 1. Physical post-write inspection confirms exact GPT
-ESP A, ESP B and SEED_DATA sizes.
+revalidated SanDisk disk 1; physical GPT ESP A/B and SEED_DATA sizes verified.
 
 ## Next step
 
-Cold-boot the prepared USB exactly once. Record the last visible code, expected
-SI, ST, SR or a later existing checkpoint. Power off and return the stick for
-read-only extraction; do not repeat the boot before extraction.
+Cold-boot this USB once. Expected transient codes are SS, EB2, EB3 and EB4F,
+then normal Genesis/WLAN UI. Report the final screen or last persistent code.
+If Genesis appears, continue directly with Wi-Fi connect and agent test.
 
 ## Recently (exactly 3, newest first)
 
-### 2026-07-22 - SMBIOS access stages accepted and written
-`ec1aea1`: SI/ST/SR, mutation predicate, release build and independent ACCEPT
-are green; firmware-bearing physical USB layout verified.
+### 2026-07-22 - Unsafe SMBIOS access rejected during boot
+`b18f272`: fail-closed boot policy, mutation predicates, release build and
+independent ACCEPT are green; physical USB layout verified.
 
-### 2026-07-22 - Hardware run stayed at SS
-CPUID completed; capture stalled inside SMBIOS. Returned RECLOG remained empty
-with zero tail.
+### 2026-07-22 - Hardware run stayed at SI
+The first physical SMBIOS entry-point slice is the deterministic pre-USB fault.
 
-### 2026-07-22 - Capture stages accepted
-`f3850bb`: SC/SS/SM/SP/SV instrumentation, mutation predicate, release build,
-and independent read-only ACCEPT are green.
+### 2026-07-22 - SMBIOS access stages accepted
+`ec1aea1`: SI/ST/SR instrumentation, release build and independent ACCEPT were
+green and provided the decisive hardware boundary.
