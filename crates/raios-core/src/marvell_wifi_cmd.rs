@@ -30,8 +30,11 @@ pub const SCAN_EXT_DEFAULT_NUM_PROBES: u16 = 2;
 pub const TLV_TYPE_CHANLIST: u16 = 0x0101;
 pub const TLV_TYPE_NUMPROBES: u16 = 0x0102;
 pub const TLV_TYPE_WILDCARDSSID: u16 = 0x0112;
+pub const TLV_TYPE_TSFTIMESTAMP: u16 = 0x0113;
 pub const TLV_TYPE_BSS_MODE: u16 = 0x01ce;
 pub const TLV_HEADER_LEN: usize = 4;
+pub const TSF_TIMESTAMP_PAYLOAD_LEN: usize = 16;
+pub const TSF_TIMESTAMP_TLV_LEN: usize = TLV_HEADER_LEN + TSF_TIMESTAMP_PAYLOAD_LEN;
 pub const SCAN_EXT_RESERVED_LEN: usize = 4;
 pub const SCAN_EXT_WILDCARD_SSID_TLV_LEN: usize = TLV_HEADER_LEN + 1;
 pub const SCAN_EXT_BSS_MODE_TLV_LEN: usize = TLV_HEADER_LEN + 1;
@@ -101,6 +104,7 @@ pub struct HwSpec {
 pub struct LegacyScanBss<'a> {
     pub bssid: [u8; 6],
     pub rssi_dbm: i16,
+    pub firmware_scan_tsf: u64,
     pub fixed_beacon_params: &'a [u8],
     pub ies: &'a [u8],
 }
@@ -121,6 +125,12 @@ pub struct AssociationBss<'a> {
     pub capability_info: u16,
     pub rates: &'a [u8],
     pub rsn_or_wpa_ie: Option<&'a [u8]>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct AssociationTsfTiming {
+    pub firmware_scan_tsf: u64,
+    pub beacon_timestamp: u64,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -359,6 +369,24 @@ pub fn build_associate_24ghz(
     bss: AssociationBss<'_>,
     out: &mut [u8],
 ) -> Result<usize, MarvellCmdError> {
+    build_associate_24ghz_inner(seq, bss, None, out)
+}
+
+pub fn build_associate_24ghz_with_tsf(
+    seq: u16,
+    bss: AssociationBss<'_>,
+    timing: AssociationTsfTiming,
+    out: &mut [u8],
+) -> Result<usize, MarvellCmdError> {
+    build_associate_24ghz_inner(seq, bss, Some(timing), out)
+}
+
+fn build_associate_24ghz_inner(
+    seq: u16,
+    bss: AssociationBss<'_>,
+    timing: Option<AssociationTsfTiming>,
+    out: &mut [u8],
+) -> Result<usize, MarvellCmdError> {
     require_single_bss_host_cmd_context(seq)?;
     if bss.bssid.iter().all(|byte| *byte == 0) || bss.bssid[0] & 1 != 0 {
         return Err(MarvellCmdError::InvalidBssid);
@@ -406,7 +434,8 @@ pub fn build_associate_24ghz(
         + bss.rates.len()
         + (TLV_HEADER_LEN + 2)
         + (TLV_HEADER_LEN + SCAN_EXT_CHANNEL_PARAM_LEN)
-        + security_len;
+        + security_len
+        + timing.map_or(0, |_| TSF_TIMESTAMP_TLV_LEN);
     let gen_size = S_DS_GEN + body_len;
     let total_len = INTF_HEADER_LEN + gen_size;
     if out.len() < total_len {
@@ -460,6 +489,18 @@ pub fn build_associate_24ghz(
         out[offset + TLV_HEADER_LEN..offset + TLV_HEADER_LEN + payload.len()]
             .copy_from_slice(payload);
         offset += TLV_HEADER_LEN + payload.len();
+    }
+
+    if let Some(timing) = timing {
+        write_tlv_header(
+            out,
+            offset,
+            TLV_TYPE_TSFTIMESTAMP,
+            TSF_TIMESTAMP_PAYLOAD_LEN as u16,
+        );
+        put_le64(out, offset + TLV_HEADER_LEN, timing.firmware_scan_tsf);
+        put_le64(out, offset + TLV_HEADER_LEN + 8, timing.beacon_timestamp);
+        offset += TSF_TIMESTAMP_TLV_LEN;
     }
 
     debug_assert_eq!(offset, total_len);
@@ -769,15 +810,59 @@ where
         return Err(HwSpecCmdError::TooShort);
     }
 
+    let tsf_payload_start = scan_tsf_payload_start(buf, descriptors_end, response_len, count)?;
+
     offset = descriptors_start;
     index = 0;
     while index < count {
-        let (bss, next) = parse_scan_bss(buf, offset, descriptors_end)?;
+        let tsf_offset = tsf_payload_start + usize::from(index) * 8;
+        let (mut bss, next) = parse_scan_bss(buf, offset, descriptors_end)?;
+        bss.firmware_scan_tsf = le64(buf, tsf_offset);
         visit(bss);
         offset = next;
         index += 1;
     }
     Ok(count)
+}
+
+fn scan_tsf_payload_start(
+    buf: &[u8],
+    tlvs_start: usize,
+    response_len: usize,
+    count: u8,
+) -> Result<usize, HwSpecCmdError> {
+    let expected_len = usize::from(count)
+        .checked_mul(8)
+        .ok_or(HwSpecCmdError::BadLength)?;
+    let mut tsf_payload_start = None;
+    let mut offset = tlvs_start;
+
+    while offset < response_len {
+        let header_end = offset
+            .checked_add(TLV_HEADER_LEN)
+            .ok_or(HwSpecCmdError::TooShort)?;
+        if header_end > response_len {
+            return Err(HwSpecCmdError::TooShort);
+        }
+        let ty = le16(buf, offset);
+        let len = le16(buf, offset + 2) as usize;
+        let end = header_end
+            .checked_add(len)
+            .ok_or(HwSpecCmdError::TooShort)?;
+        if end > response_len {
+            return Err(HwSpecCmdError::TooShort);
+        }
+
+        if ty == TLV_TYPE_TSFTIMESTAMP {
+            if len != expected_len || tsf_payload_start.is_some() {
+                return Err(HwSpecCmdError::BadLength);
+            }
+            tsf_payload_start = Some(header_end);
+        }
+        offset = end;
+    }
+
+    tsf_payload_start.ok_or(HwSpecCmdError::BadLength)
 }
 
 fn parse_scan_bss(
@@ -809,6 +894,7 @@ fn parse_scan_bss(
         LegacyScanBss {
             bssid,
             rssi_dbm: -(body[6] as i16),
+            firmware_scan_tsf: 0,
             fixed_beacon_params: &body[7..19],
             ies: &body[19..],
         },
@@ -850,6 +936,10 @@ fn put_le32(out: &mut [u8], offset: usize, value: u32) {
     out[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
 }
 
+fn put_le64(out: &mut [u8], offset: usize, value: u64) {
+    out[offset..offset + 8].copy_from_slice(&value.to_le_bytes());
+}
+
 fn put_phys_addr(out: &mut [u8], offset: usize, value: u64) {
     put_le32(out, offset, value as u32);
     put_le32(out, offset + 4, (value >> 32) as u32);
@@ -873,9 +963,25 @@ fn le32(buf: &[u8], offset: usize) -> u32 {
     ])
 }
 
+fn le64(buf: &[u8], offset: usize) -> u64 {
+    u64::from_le_bytes([
+        buf[offset],
+        buf[offset + 1],
+        buf[offset + 2],
+        buf[offset + 3],
+        buf[offset + 4],
+        buf[offset + 5],
+        buf[offset + 6],
+        buf[offset + 7],
+    ])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const ONE_BSS_SCAN_RESPONSE_LEN: usize =
+        SCAN_RESPONSE_FIXED_LEN + 2 + SCAN_BSS_FIXED_LEN + TLV_HEADER_LEN + 8;
 
     fn put_response_le16(buf: &mut [u8], offset: usize, value: u16) {
         buf[offset..offset + 2].copy_from_slice(&value.to_le_bytes());
@@ -883,6 +989,44 @@ mod tests {
 
     fn put_response_le32(buf: &mut [u8], offset: usize, value: u32) {
         buf[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+    }
+
+    fn one_bss_scan_response() -> [u8; ONE_BSS_SCAN_RESPONSE_LEN] {
+        let mut response = [0u8; ONE_BSS_SCAN_RESPONSE_LEN];
+        let descriptors_len = 2 + SCAN_BSS_FIXED_LEN;
+        let tlv_offset = SCAN_RESPONSE_FIXED_LEN + descriptors_len;
+        put_response_le16(&mut response, 0, ONE_BSS_SCAN_RESPONSE_LEN as u16);
+        put_response_le16(&mut response, 2, MWIFIEX_TYPE_CMD);
+        put_response_le16(&mut response, 4, SCAN_CMD | HOST_CMD_RET_BIT);
+        put_response_le16(
+            &mut response,
+            6,
+            (ONE_BSS_SCAN_RESPONSE_LEN - INTF_HEADER_LEN) as u16,
+        );
+        put_response_le16(&mut response, 10, HOST_CMD_RESULT_OK);
+        put_response_le16(&mut response, 12, descriptors_len as u16);
+        response[14] = 1;
+        put_response_le16(
+            &mut response,
+            SCAN_RESPONSE_FIXED_LEN,
+            SCAN_BSS_FIXED_LEN as u16,
+        );
+        response[SCAN_RESPONSE_FIXED_LEN + 2..SCAN_RESPONSE_FIXED_LEN + 8]
+            .copy_from_slice(&[2, 3, 4, 5, 6, 7]);
+        put_response_le16(&mut response, tlv_offset, TLV_TYPE_TSFTIMESTAMP);
+        put_response_le16(&mut response, tlv_offset + 2, 8);
+        response[tlv_offset + TLV_HEADER_LEN..]
+            .copy_from_slice(&0x0807_0605_0403_0201u64.to_le_bytes());
+        response
+    }
+
+    fn assert_scan_rejected_without_visit(response: &[u8], expected: HwSpecCmdError) {
+        let mut visits = 0;
+        assert_eq!(
+            visit_scan_response(response, |_| visits += 1),
+            Err(expected)
+        );
+        assert_eq!(visits, 0);
     }
 
     #[test]
@@ -1172,7 +1316,8 @@ mod tests {
         let ies = [0, 4, b't', b'e', b's', b't', 3, 1, 6];
         let beacon_size = SCAN_BSS_FIXED_LEN + ies.len();
         let descriptors_len = 2 + beacon_size;
-        let response_len = SCAN_RESPONSE_FIXED_LEN + descriptors_len;
+        let tlv_offset = SCAN_RESPONSE_FIXED_LEN + descriptors_len;
+        let response_len = tlv_offset + TLV_HEADER_LEN + 8;
         let mut response = [0u8; 64];
         put_response_le16(&mut response, 0, response_len as u16);
         put_response_le16(&mut response, 2, MWIFIEX_TYPE_CMD);
@@ -1186,12 +1331,17 @@ mod tests {
         response[23] = 42;
         response[24..36].copy_from_slice(&[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
         response[36..36 + ies.len()].copy_from_slice(&ies);
+        put_response_le16(&mut response, tlv_offset, TLV_TYPE_TSFTIMESTAMP);
+        put_response_le16(&mut response, tlv_offset + 2, 8);
+        response[tlv_offset + TLV_HEADER_LEN..response_len]
+            .copy_from_slice(&0x8877_6655_4433_2211u64.to_le_bytes());
 
         let mut visits = 0;
         let count = visit_scan_response(&response, |bss| {
             visits += 1;
             assert_eq!(bss.bssid, [1, 2, 3, 4, 5, 6]);
             assert_eq!(bss.rssi_dbm, -42);
+            assert_eq!(bss.firmware_scan_tsf, 0x8877_6655_4433_2211);
             assert_eq!(
                 bss.fixed_beacon_params,
                 &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
@@ -1202,6 +1352,89 @@ mod tests {
 
         assert_eq!(count, 1);
         assert_eq!(visits, 1);
+    }
+
+    #[test]
+    fn visit_scan_response_maps_tsf_entries_by_descriptor_index() {
+        let descriptor_len = 2 + SCAN_BSS_FIXED_LEN;
+        let descriptors_len = 2 * descriptor_len;
+        let tlv_offset = SCAN_RESPONSE_FIXED_LEN + descriptors_len;
+        let response_len = tlv_offset + TLV_HEADER_LEN + 16;
+        let mut response = [0u8; 80];
+        put_response_le16(&mut response, 0, response_len as u16);
+        put_response_le16(&mut response, 2, MWIFIEX_TYPE_CMD);
+        put_response_le16(&mut response, 4, SCAN_CMD | HOST_CMD_RET_BIT);
+        put_response_le16(&mut response, 6, (response_len - INTF_HEADER_LEN) as u16);
+        put_response_le16(&mut response, 10, HOST_CMD_RESULT_OK);
+        put_response_le16(&mut response, 12, descriptors_len as u16);
+        response[14] = 2;
+
+        let first = SCAN_RESPONSE_FIXED_LEN;
+        put_response_le16(&mut response, first, SCAN_BSS_FIXED_LEN as u16);
+        response[first + 2..first + 8].copy_from_slice(&[2, 0, 0, 0, 0, 1]);
+        let second = first + descriptor_len;
+        put_response_le16(&mut response, second, SCAN_BSS_FIXED_LEN as u16);
+        response[second + 2..second + 8].copy_from_slice(&[2, 0, 0, 0, 0, 2]);
+
+        put_response_le16(&mut response, tlv_offset, TLV_TYPE_TSFTIMESTAMP);
+        put_response_le16(&mut response, tlv_offset + 2, 16);
+        response[tlv_offset + 4..tlv_offset + 12]
+            .copy_from_slice(&0x1112_1314_1516_1718u64.to_le_bytes());
+        response[tlv_offset + 12..tlv_offset + 20]
+            .copy_from_slice(&0x2122_2324_2526_2728u64.to_le_bytes());
+
+        let mut seen = [([0u8; 6], 0u64); 2];
+        let mut visits = 0;
+        assert_eq!(
+            visit_scan_response(&response, |bss| {
+                seen[visits] = (bss.bssid, bss.firmware_scan_tsf);
+                visits += 1;
+            }),
+            Ok(2)
+        );
+        assert_eq!(visits, 2);
+        assert_eq!(seen[0], ([2, 0, 0, 0, 0, 1], 0x1112_1314_1516_1718));
+        assert_eq!(seen[1], ([2, 0, 0, 0, 0, 2], 0x2122_2324_2526_2728));
+    }
+
+    #[test]
+    fn visit_scan_response_rejects_missing_mutated_or_ambiguous_tsf_before_visiting() {
+        let valid = one_bss_scan_response();
+        let tlv_offset = SCAN_RESPONSE_FIXED_LEN + 2 + SCAN_BSS_FIXED_LEN;
+
+        let mut wrong_type = valid;
+        put_response_le16(&mut wrong_type, tlv_offset, TLV_TYPE_WILDCARDSSID);
+        assert_scan_rejected_without_visit(&wrong_type, HwSpecCmdError::BadLength);
+
+        let mut wrong_len = valid;
+        put_response_le16(&mut wrong_len, tlv_offset + 2, 7);
+        assert_scan_rejected_without_visit(&wrong_len, HwSpecCmdError::BadLength);
+
+        let mut wrong_count = valid;
+        wrong_count[14] = 2;
+        assert_scan_rejected_without_visit(&wrong_count, HwSpecCmdError::TooShort);
+
+        let mut truncated = valid;
+        put_response_le16(&mut truncated, 0, (ONE_BSS_SCAN_RESPONSE_LEN - 1) as u16);
+        assert_scan_rejected_without_visit(&truncated, HwSpecCmdError::TooShort);
+
+        let mut missing = valid;
+        put_response_le16(&mut missing, 0, tlv_offset as u16);
+        assert_scan_rejected_without_visit(&missing, HwSpecCmdError::BadLength);
+
+        let mut overflowing = valid;
+        put_response_le16(&mut overflowing, tlv_offset + 2, u16::MAX);
+        assert_scan_rejected_without_visit(&overflowing, HwSpecCmdError::TooShort);
+
+        let mut duplicate = [0u8; ONE_BSS_SCAN_RESPONSE_LEN + TLV_HEADER_LEN + 8];
+        duplicate[..ONE_BSS_SCAN_RESPONSE_LEN].copy_from_slice(&valid);
+        let duplicate_offset = ONE_BSS_SCAN_RESPONSE_LEN;
+        let duplicate_len = duplicate.len();
+        put_response_le16(&mut duplicate, 0, duplicate_len as u16);
+        put_response_le16(&mut duplicate, 6, (duplicate_len - INTF_HEADER_LEN) as u16);
+        put_response_le16(&mut duplicate, duplicate_offset, TLV_TYPE_TSFTIMESTAMP);
+        put_response_le16(&mut duplicate, duplicate_offset + 2, 8);
+        assert_scan_rejected_without_visit(&duplicate, HwSpecCmdError::BadLength);
     }
 
     #[test]
@@ -1499,7 +1732,7 @@ mod tests {
     }
 
     #[test]
-    fn build_associate_24ghz_pins_linux_tlvs_and_complete_rsn_ie() {
+    fn build_associate_24ghz_pins_legacy_and_tsf_linux_tlvs() {
         let rsn_ie = [
             0x30, 0x14, 0x01, 0x00, 0x00, 0x0f, 0xac, 0x04, 0x01, 0x00, 0x00, 0x0f, 0xac, 0x04,
             0x01, 0x00, 0x00, 0x0f, 0xac, 0x02, 0x00, 0x00,
@@ -1513,11 +1746,15 @@ mod tests {
             rates: &[0x82, 0x84, 0x8b, 0x96, 0x0c, 0x12, 0x18, 0x24],
             rsn_or_wpa_ie: Some(&rsn_ie),
         };
-        let mut out = [0xa5u8; 112];
+        let timing = AssociationTsfTiming {
+            firmware_scan_tsf: 0x0123_4567_89ab_cdef,
+            beacon_timestamp: 0xfedc_ba98_7654_3210,
+        };
+        let mut legacy_out = [0xa5u8; 128];
 
-        let len = build_associate_24ghz(0x44, bss, &mut out).unwrap();
+        let legacy_len = build_associate_24ghz(0x44, bss, &mut legacy_out).unwrap();
 
-        let expected = [
+        let legacy_expected = [
             0x64, 0x00, 0x01, 0x00, 0x12, 0x00, 0x60, 0x00, 0x44, 0x00, 0x00, 0x00, 0x00, 0x11,
             0x22, 0x33, 0x44, 0x55, 0x31, 0x04, 0x0a, 0x00, 0x64, 0x00, 0x00, 0x00, 0x00, 0x03,
             0x00, 0x6e, 0x65, 0x74, 0x03, 0x00, 0x01, 0x00, 0x06, 0x04, 0x00, 0x06, 0x00, 0x00,
@@ -1527,9 +1764,26 @@ mod tests {
             0xac, 0x04, 0x01, 0x00, 0x00, 0x0f, 0xac, 0x04, 0x01, 0x00, 0x00, 0x0f, 0xac, 0x02,
             0x00, 0x00,
         ];
-        assert_eq!(&out[..expected.len()], &expected);
-        assert_eq!(len, expected.len());
-        assert!(out[len..].iter().all(|byte| *byte == 0xa5));
+        assert_eq!(&legacy_out[..legacy_expected.len()], &legacy_expected);
+        assert_eq!(legacy_len, legacy_expected.len());
+        assert!(legacy_out[legacy_len..].iter().all(|byte| *byte == 0xa5));
+
+        let mut tsf_out = [0xa5u8; 128];
+        let tsf_len = build_associate_24ghz_with_tsf(0x44, bss, timing, &mut tsf_out).unwrap();
+        let tsf_expected = [
+            0x78, 0x00, 0x01, 0x00, 0x12, 0x00, 0x74, 0x00, 0x44, 0x00, 0x00, 0x00, 0x00, 0x11,
+            0x22, 0x33, 0x44, 0x55, 0x31, 0x04, 0x0a, 0x00, 0x64, 0x00, 0x00, 0x00, 0x00, 0x03,
+            0x00, 0x6e, 0x65, 0x74, 0x03, 0x00, 0x01, 0x00, 0x06, 0x04, 0x00, 0x06, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x08, 0x00, 0x82, 0x84, 0x8b, 0x96, 0x0c,
+            0x12, 0x18, 0x24, 0x1f, 0x01, 0x02, 0x00, 0x00, 0x00, 0x01, 0x01, 0x07, 0x00, 0x00,
+            0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x30, 0x00, 0x14, 0x00, 0x01, 0x00, 0x00, 0x0f,
+            0xac, 0x04, 0x01, 0x00, 0x00, 0x0f, 0xac, 0x04, 0x01, 0x00, 0x00, 0x0f, 0xac, 0x02,
+            0x00, 0x00, 0x13, 0x01, 0x10, 0x00, 0xef, 0xcd, 0xab, 0x89, 0x67, 0x45, 0x23, 0x01,
+            0x10, 0x32, 0x54, 0x76, 0x98, 0xba, 0xdc, 0xfe,
+        ];
+        assert_eq!(&tsf_out[..tsf_expected.len()], &tsf_expected);
+        assert_eq!(tsf_len, tsf_expected.len());
+        assert!(tsf_out[tsf_len..].iter().all(|byte| *byte == 0xa5));
     }
 
     #[test]
@@ -1544,12 +1798,30 @@ mod tests {
             rates: &[0x82],
             rsn_or_wpa_ie: Some(&wpa_ie),
         };
+        let timing = AssociationTsfTiming {
+            firmware_scan_tsf: 0x0807_0605_0403_0201,
+            beacon_timestamp: 0x1817_1615_1413_1211,
+        };
         let mut out = [0u8; 128];
 
         let len = build_associate_24ghz(0, bss, &mut out).unwrap();
         assert_eq!(
             &out[len - 10..len],
             &[0xdd, 0, 6, 0, 0, 0x50, 0xf2, 1, 1, 0]
+        );
+        assert_eq!(&out[18..20], &MWIFIEX_CAPINFO_MASK.to_le_bytes());
+
+        let len = build_associate_24ghz_with_tsf(0, bss, timing, &mut out).unwrap();
+        assert_eq!(
+            &out[len - 30..len - 20],
+            &[0xdd, 0, 6, 0, 0, 0x50, 0xf2, 1, 1, 0]
+        );
+        assert_eq!(
+            &out[len - 20..len],
+            &[
+                0x13, 0x01, 0x10, 0x00, 1, 2, 3, 4, 5, 6, 7, 8, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16,
+                0x17, 0x18,
+            ]
         );
         assert_eq!(&out[18..20], &MWIFIEX_CAPINFO_MASK.to_le_bytes());
 
@@ -1577,11 +1849,19 @@ mod tests {
             ),
             Err(MarvellCmdError::InvalidSecurityIe)
         );
-        let mut short = [0u8; 8];
+        let mut short = [0xa5u8; 76];
         assert_eq!(
             build_associate_24ghz(0, bss, &mut short),
             Err(MarvellCmdError::OutputBufferTooSmall)
         );
+        assert!(short.iter().all(|byte| *byte == 0xa5));
+
+        let mut short = [0xa5u8; 96];
+        assert_eq!(
+            build_associate_24ghz_with_tsf(0, bss, timing, &mut short),
+            Err(MarvellCmdError::OutputBufferTooSmall)
+        );
+        assert!(short.iter().all(|byte| *byte == 0xa5));
     }
 
     #[test]
