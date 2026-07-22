@@ -351,7 +351,9 @@ function Open-Adr0045R3RecoveryEvidence {
     try {
         foreach ($spec in $specs) { $leases.Add((Open-ExactRecoveryEvidenceLease $spec[0] $spec[1] $spec[2])) }
         $failureLease = $leases[3]
-        $failure = (New-Object Text.UTF8Encoding($false, $true)).GetString($failureLease.bytes) | ConvertFrom-Json
+        # The immutable PowerShell redirect artifact was emitted through the
+        # host OEM code page (850), not UTF-8; its exact byte hash is pinned.
+        $failure = [Text.Encoding]::GetEncoding(850).GetString($failureLease.bytes) | ConvertFrom-Json
         if ($failure.accepted -ne $false -or $failure.child_started -ne $false -or $failure.reason -cne "codex_child_start_failed") {
             throw "Failure record does not prove accepted=false, child_started=false, codex_child_start_failed"
         }
