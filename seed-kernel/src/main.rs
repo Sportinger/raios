@@ -253,6 +253,7 @@ fn early_main() -> ! {
     let mut runtime_status = system_status::RuntimeStatus::new();
     runtime_status.framebuffer = framebuffer_info;
     let mut status_ui = shell_host::ShellHost::new(framebuffer_surface);
+    status_ui.render_early_boot_before_surface();
     if provider_config::init_default_config() {
         serial::write_line("Default provider loaded: OPENAI API key set");
     }
@@ -268,14 +269,24 @@ fn early_main() -> ! {
             reason
         ));
     }
+    status_ui.render_early_boot_before_usb();
     usb::init();
+    status_ui.render_early_boot_after_usb();
     if let Ok(records) = surface_capture {
         match usb::append_surface_fact_capture(&records) {
-            Ok(()) => serial::write_line("surface-capture: series persisted and verified"),
-            Err(reason) => serial::write_fmt(format_args!(
-                "surface-capture: persistence stopped reason={}\r\n", reason
-            )),
+            Ok(()) => {
+                serial::write_line("surface-capture: series persisted and verified");
+                status_ui.render_early_boot_after_persist();
+            }
+            Err(reason) => {
+                serial::write_fmt(format_args!(
+                    "surface-capture: persistence stopped reason={}\r\n", reason
+                ));
+                status_ui.render_early_boot_persist_failed();
+            }
         }
+    } else {
+        status_ui.render_early_boot_surface_failed();
     }
     let iommu_report = iommu_vtd::probe();
     if iommu_report.present {

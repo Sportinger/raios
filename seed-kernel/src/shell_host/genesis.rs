@@ -94,6 +94,70 @@ impl ShellHost {
         }
     }
 
+    const EARLY_BOOT_MAX_SCALE: usize = 4;
+    const EARLY_BOOT_GLYPH_WIDTH: usize = 8;
+    const EARLY_BOOT_GLYPH_HEIGHT: usize = 8;
+    const EARLY_BOOT_GLYPH_ADVANCE: usize = 9;
+
+    pub fn render_early_boot_before_surface(&mut self) {
+        self.render_early_boot_checkpoint("EB1", APP_BLUE);
+    }
+
+    pub fn render_early_boot_before_usb(&mut self) {
+        self.render_early_boot_checkpoint("EB2", APP_AMBER);
+    }
+
+    pub fn render_early_boot_after_usb(&mut self) {
+        self.render_early_boot_checkpoint("EB3", APP_GREEN);
+    }
+
+    pub fn render_early_boot_after_persist(&mut self) {
+        self.render_early_boot_checkpoint("EB4P", SURFACE_ALT);
+    }
+
+    pub fn render_early_boot_persist_failed(&mut self) {
+        self.render_early_boot_checkpoint("EB4E", APP_BG);
+    }
+
+    pub fn render_early_boot_surface_failed(&mut self) {
+        self.render_early_boot_checkpoint("EB4F", APP_RED);
+    }
+
+    fn render_early_boot_checkpoint(&mut self, code: &'static str, background: Color) {
+        if let Some(surface) = self.surface.as_mut() {
+            let (scale, x, y, text_fits) =
+                Self::early_boot_checkpoint_layout(surface.info(), code.len());
+            surface.set_draw_scale(scale);
+            surface.fill(background);
+            if text_fits {
+                text::draw_text(surface, x, y, code, TEXT_MAIN, None);
+            }
+            surface.present();
+        }
+    }
+
+    fn early_boot_checkpoint_layout(
+        info: FramebufferInfo,
+        code_len: usize,
+    ) -> (usize, usize, usize, bool) {
+        let text_width = code_len
+            .saturating_sub(1)
+            .saturating_mul(Self::EARLY_BOOT_GLYPH_ADVANCE)
+            .saturating_add(Self::EARLY_BOOT_GLYPH_WIDTH);
+        let width = info.width as usize;
+        let height = info.height as usize;
+        let fit_scale = usize::min(
+            width / text_width.max(1),
+            height / Self::EARLY_BOOT_GLYPH_HEIGHT,
+        );
+        let text_fits = width >= text_width && height >= Self::EARLY_BOOT_GLYPH_HEIGHT;
+        let scale = usize::min(Self::EARLY_BOOT_MAX_SCALE, fit_scale).max(1);
+        let x = width.saturating_sub(text_width.saturating_mul(scale)) / scale / 2;
+        let y =
+            height.saturating_sub(Self::EARLY_BOOT_GLYPH_HEIGHT.saturating_mul(scale)) / scale / 2;
+        (scale, x, y, text_fits)
+    }
+
     pub fn render(&mut self, uptime_ms: u64, runtime: crate::system_status::RuntimeStatus) {
         self.render_inner(uptime_ms, runtime, false);
     }
