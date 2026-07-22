@@ -253,3 +253,29 @@ notwendige enge H26-Reparatur- und Review-Schritte erteilte automatische
 Owner-Autorisierung als ausreichend. Die Entscheidung folgt Opinion B in
 dieser Zuständigkeitsfrage: Die vorhandene Owner-Autorisierung deckt genau
 diese einmalige Infrastruktur-Recovery und nichts darüber hinaus.
+
+## R3-Abschluss (2026-07-22)
+
+Der Recovery-Dispatch startete den R3-Worker erfolgreich. Die vier fokussierten
+Dateien, beide ausführbaren Interleavingmodelle, 63 Marvell-Tests, 16
+DMA-Safety-Tests, rustfmt, Unsafe-Selftest und der Root-freestanding-Release-
+Build waren grün. Die vorgeschriebene unabhängige Read-only-Abnahme lehnte den
+Diff dennoch ab: Zwei Starts aus einem vorhandenen Ready-Zustand können beide
+einen besitzlosen, später veralteten `replace_ready`-Entschluss tragen. Nach
+Publikation oder erfolgreichem Abschluss des Gewinners kann der Verlierer
+dadurch dessen Hardware quieszen und gegebenenfalls Snapshot, Data-Link und
+Netzbindung löschen. Beide neuen Modelle starten nur aus Idle und beweisen
+diese Ready-Replacement-Grenze nicht.
+
+Zwei anschließende frische, voneinander unabhängige Read-only-Prüfungen
+bestätigten denselben minimalen Trace und untersagten den Hardware-Write. Eine
+Ausgabe war im Kopf widersprüchlich als `REFUTE` bezeichnet, ihr Befund und
+ihre Freigabeentscheidung bestätigten das Race jedoch vollständig; es besteht
+kein materieller Dissens.
+
+Damit ist die in der R3-Erweiterung festgelegte Stop-Bedingung erreicht. H26
+ist beim Owner blockiert; der Vier-Dateien-Diff bleibt uncommitted und darf
+nicht paketiert oder auf USB geschrieben werden. Es gibt keine automatische
+R4-Variante, keinen weiteren Claim und keinen weiteren Hardwaretest. Eine
+Fortsetzung benötigt eine neue ausdrückliche Owner-Entscheidung mit geänderter
+Strategie oder engerer Scoping-Grenze.

@@ -57,8 +57,11 @@ Linux `mwifiex` comparison identified one concrete unimplemented input: its
 Associate builder appends `TLV_TYPE_TSFTIMESTAMP` (`0x0113`) with the firmware
 scan TSF and AP beacon timestamp, while raiOS currently retains/appends neither.
 H26 is therefore scoped to carry those two scan values into Associate and to
-restore the real PMK -> Associate path; no H26 implementation or stick image
-exists yet.
+restore the real PMK -> Associate path. Three bounded implementation attempts
+remain unaccepted: the final R3 review proved a Ready-replacement TOCTOU in
+which a losing concurrent start can quiesce or erase the published winner, and
+both executable models omit that Ready-origin interleaving. ADR 0045 parks H26
+blocked with the Owner; no H26 image or USB write is authorized.
 The path is still in-kernel; connection, traffic, domain execution, IOMMU
 fencing, and safe kill/restart remain open.
 
