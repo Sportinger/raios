@@ -254,22 +254,25 @@ fn early_main() -> ! {
     runtime_status.framebuffer = framebuffer_info;
     let mut status_ui = shell_host::ShellHost::new(framebuffer_surface);
     status_ui.render_early_boot_before_surface();
-    if provider_config::init_default_config() {
+    let default_provider_loaded = provider_config::init_default_config();
+    status_ui.render_early_boot_after_provider_config();
+    if default_provider_loaded {
         serial::write_line("Default provider loaded: OPENAI API key set");
     }
     console::init();
+    status_ui.render_early_boot_after_console();
     let surface_capture = surface_fact_capture::capture(
         SMBIOS_REQUEST.get_response(),
         MEMORY_MAP_REQUEST.get_response(),
         HHDM_REQUEST.get_response(),
     );
+    status_ui.render_early_boot_before_usb();
     if let Err(reason) = &surface_capture {
         serial::write_fmt(format_args!(
             "surface-capture: measurement rejected reason={}\r\n",
             reason
         ));
     }
-    status_ui.render_early_boot_before_usb();
     usb::init();
     status_ui.render_early_boot_after_usb();
     if let Ok(records) = surface_capture {

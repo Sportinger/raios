@@ -103,6 +103,14 @@ impl ShellHost {
         self.render_early_boot_checkpoint("EB1", APP_BLUE);
     }
 
+    pub fn render_early_boot_after_provider_config(&mut self) {
+        self.render_early_boot_checkpoint("EB1P", SURFACE_BG);
+    }
+
+    pub fn render_early_boot_after_console(&mut self) {
+        self.render_early_boot_checkpoint("EB1C", HAIRLINE);
+    }
+
     pub fn render_early_boot_before_usb(&mut self) {
         self.render_early_boot_checkpoint("EB2", APP_AMBER);
     }

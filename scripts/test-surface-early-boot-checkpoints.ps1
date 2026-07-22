@@ -74,14 +74,16 @@ function Get-ModeledCheckpointLayout([int]$Width, [int]$Height, [string]$Code) {
 
 $script:ExpectedMethods = @(
     "render_early_boot_before_surface",
+    "render_early_boot_after_provider_config",
+    "render_early_boot_after_console",
     "render_early_boot_before_usb",
     "render_early_boot_after_usb",
     "render_early_boot_after_persist",
     "render_early_boot_persist_failed",
     "render_early_boot_surface_failed"
 )
-$script:ExpectedCodes = @("EB1", "EB2", "EB3", "EB4P", "EB4E", "EB4F")
-$script:ExpectedBackgrounds = @("APP_BLUE", "APP_AMBER", "APP_GREEN", "SURFACE_ALT", "APP_BG", "APP_RED")
+$script:ExpectedCodes = @("EB1", "EB1P", "EB1C", "EB2", "EB3", "EB4P", "EB4E", "EB4F")
+$script:ExpectedBackgrounds = @("APP_BLUE", "SURFACE_BG", "HAIRLINE", "APP_AMBER", "APP_GREEN", "SURFACE_ALT", "APP_BG", "APP_RED")
 $script:MaxScale = 4
 $script:GlyphWidth = 8
 $script:GlyphHeight = 8
@@ -98,6 +100,11 @@ function Assert-CheckpointSources([string]$MainSource, [string]$GenesisSource) {
     Require-UniqueOrderedTokens $earlyMain @(
         "let mut status_ui = shell_host::ShellHost::new(framebuffer_surface);",
         "status_ui.render_early_boot_before_surface();",
+        "let default_provider_loaded = provider_config::init_default_config();",
+        "status_ui.render_early_boot_after_provider_config();",
+        "if default_provider_loaded {",
+        "console::init();",
+        "status_ui.render_early_boot_after_console();",
         "let surface_capture = surface_fact_capture::capture(",
         "status_ui.render_early_boot_before_usb();",
         "usb::init();",
@@ -109,8 +116,13 @@ function Assert-CheckpointSources([string]$MainSource, [string]$GenesisSource) {
         "status_ui.render_early_boot_surface_failed();",
         "let iommu_report = iommu_vtd::probe();"
     )
-    Require-Match $earlyMain 'ShellHost::new\(framebuffer_surface\);\s*status_ui\.render_early_boot_before_surface\(\);' "first checkpoint is not immediate after ShellHost framebuffer ownership"
-    Require-Match $earlyMain 'status_ui\.render_early_boot_before_usb\(\);\s*usb::init\(\);\s*status_ui\.render_early_boot_after_usb\(\);' "USB enter checkpoint is not presented immediately before the potentially hanging call"
+    Require-Match $earlyMain 'ShellHost::new\(framebuffer_surface\);\s*status_ui\.render_early_boot_before_surface\(\);\s*let default_provider_loaded = provider_config::init_default_config\(\);\s*status_ui\.render_early_boot_after_provider_config\(\);\s*if default_provider_loaded' "EB1/EB1P do not immediately bracket provider configuration independently of its bool result"
+    Require-Match $earlyMain 'console::init\(\);\s*status_ui\.render_early_boot_after_console\(\);\s*let surface_capture = surface_fact_capture::capture\(.*?\);\s*status_ui\.render_early_boot_before_usb\(\);' "EB1C and EB2 are not immediate after console and Surface capture return"
+    Require-Match $earlyMain 'status_ui\.render_early_boot_before_usb\(\);.*?usb::init\(\);\s*status_ui\.render_early_boot_after_usb\(\);' "EB2 is not before USB init or EB3 is not immediate after USB return"
+    Require ([regex]::Matches($earlyMain, 'provider_config::init_default_config\(\)').Count -eq 1) "provider configuration call count changed"
+    Require ([regex]::Matches($earlyMain, 'console::init\(\)').Count -eq 1) "console initialization call count changed"
+    Require ([regex]::Matches($earlyMain, 'surface_fact_capture::capture\(').Count -eq 1) "Surface capture call count changed"
+    Require ([regex]::Matches($earlyMain, 'usb::init\(\)').Count -eq 1) "USB initialization call count changed"
     $branchPattern = 'if let Ok\(records\) = surface_capture\s*\{\s*match usb::append_surface_fact_capture\(&records\)\s*\{\s*Ok\(\(\)\)\s*=>\s*\{(?<success>.*?)\}\s*Err\(reason\)\s*=>\s*\{(?<error>.*?)\}\s*\}\s*\}\s*else\s*\{(?<measurement>.*?)\}\s*$'
     $branchMatch = [regex]::Match(
         $persistPhase,
@@ -209,26 +221,30 @@ Write-Output "SURFACE-EARLY-BOOT-BOUNDS: PASS"
 
 # Negative boundary: mutate the complete source input and run the same source
 # contract used for the real files.
-$missingToken = "    status_ui.render_early_boot_before_usb();"
-Require ([regex]::Matches($main, [regex]::Escape($missingToken)).Count -eq 1) "missing-negative source token is not unique"
-$missingMain = $main.Replace($missingToken, "")
-Assert-RejectedMutation $missingMain $genesis "SURFACE-EARLY-BOOT-NEG-MISSING"
-
-$duplicateToken = "    status_ui.render_early_boot_after_usb();"
-Require ([regex]::Matches($main, [regex]::Escape($duplicateToken)).Count -eq 1) "duplicate-negative source token is not unique"
-$duplicateMain = $main.Replace(
-    $duplicateToken,
-    $duplicateToken + [Environment]::NewLine + $duplicateToken
+$newCheckpointTokens = @(
+    "    status_ui.render_early_boot_after_provider_config();",
+    "    status_ui.render_early_boot_after_console();"
 )
-Assert-RejectedMutation $duplicateMain $genesis "SURFACE-EARLY-BOOT-NEG-DUPLICATE"
+for ($index = 0; $index -lt $newCheckpointTokens.Count; $index++) {
+    $mutationNumber = $index + 1
+    $token = $newCheckpointTokens[$index]
+    Require ([regex]::Matches($main, [regex]::Escape($token)).Count -eq 1) "new-checkpoint source token is not unique"
+    $missingMain = $main.Replace($token, "")
+    Assert-RejectedMutation $missingMain $genesis "SURFACE-EARLY-BOOT-NEG-MISSING-NEW-$mutationNumber"
+    $duplicateMain = $main.Replace(
+        $token,
+        $token + [Environment]::NewLine + $token
+    )
+    Assert-RejectedMutation $duplicateMain $genesis "SURFACE-EARLY-BOOT-NEG-DUPLICATE-NEW-$mutationNumber"
+}
 
-$beforeUsbName = "render_early_boot_before_usb"
-$afterUsbName = "render_early_boot_after_usb"
+$afterProviderName = "render_early_boot_after_provider_config"
+$afterConsoleName = "render_early_boot_after_console"
 $swapSentinel = "render_early_boot_swap_checkpoint"
 Require (-not $main.Contains($swapSentinel)) "reorder-negative sentinel already exists"
-$reorderedMain = $main.Replace($beforeUsbName, $swapSentinel).
-    Replace($afterUsbName, $beforeUsbName).
-    Replace($swapSentinel, $afterUsbName)
+$reorderedMain = $main.Replace($afterProviderName, $swapSentinel).
+    Replace($afterConsoleName, $afterProviderName).
+    Replace($swapSentinel, $afterConsoleName)
 Require ($reorderedMain -cne $main) "reorder-negative did not mutate the source"
 Assert-RejectedMutation $reorderedMain $genesis "SURFACE-EARLY-BOOT-NEG-REORDER"
 
