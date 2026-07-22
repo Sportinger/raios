@@ -3,49 +3,45 @@
 > Window, not log: one Now, one Next step, three Recently entries. Replace on
 > update; never append. Keep under 60 lines and roughly 2 KB.
 
-## Now (2026-07-22, PCI restore slice parked after two failed strategies)
+## Now (2026-07-22, PCI gate accepted; K3 capture awaiting re-review)
 
 Canonical `main` is `C:\Users\admin\Documents\raios2-main` at pushed
-`dc22477`. The detached old root at `09751a7` contains foreign WIP; never clean,
+`e926f06`. The detached old root at `09751a7` contains foreign WIP; never clean,
 reset, merge, or integrate it.
 
-H25 proves post-PMK mailbox liveness. K3 remains an unaccepted five-file dirty
-Surface-capture slice. The PCI prerequisite remains an unaccepted two-file
-dirty slice in `seed-kernel/src/pci.rs` and
-`scripts/test-pci-bar-sizing.ps1`; no product file from this iteration is
-accepted, staged, committed, pushed, or safe for owner boot.
+H25 hardware-proves post-PMK mailbox liveness. ADR 0042 and the replacement
+PCI BAR probe are accepted and pushed. The production predicate passes 21/21
+tests, binds CF8 dword to CFC/CFE word writes in emitted code, rejects both
+dword-data and swapped-association mutations, and passed two fresh independent
+read-only reviews. Real partial-word behavior remains owner-boot evidence.
 
-Codex CLI 0.145.0 fixed the prior Windows workspace-write dispatch blocker.
-The orchestrator externally ran the current PCI predicate green (10/10), plus
-rustfmt and diff checks. Two fresh independent reviews still rejected it:
-production `outw` can false-green behind the fake seam; a final Memory64 BAR
-may probe beyond header `bar_count`; alignment/range overflow and all-ones
-device-disappearance cases are not rejected; the untracked predicate cannot
-check itself reliably. This is the second failed implementation/review
-strategy, so the stuck rule parks it. Owner: orchestrator architecture.
+K3 is now the only dirty product slice: five files for same-boot Surface fact
+capture through USB RECLOG. Its previous predicate/build were green, but its
+old review was invalidated by the then-missing PCI proof. K3 remains unaccepted,
+uncommitted, and unsafe for owner boot until fresh review and verification.
 
 ## Next step
 
-Do not iterate a third patch on the same seam and do not write/boot the Surface
-stick. Rescope the PCI proof as a new architecture decision before product
-work: define one bounded probe outcome carrying slot width independently from
-BAR acceptance, bind the concrete x86 word-write adapter into the testable
-boundary, and specify fail-closed validity for header bounds, all-ones reads,
-alignment, and range overflow. Obtain two fresh neutral read-only Codex
-opinions on that replacement boundary. Only an accepted ADR may authorize a
-new implementation lane. K3 and H26 remain dependency-blocked; no safe
-independent WLAN lane exists.
+Re-run the K3 predicate and freestanding release build against accepted PCI
+commit `e926f06`. Dispatch two fresh independent read-only reviews over exactly
+`docs/architecture/unsafe-inventory-baseline-v2.json`, `seed-kernel/src/main.rs`,
+`seed-kernel/src/usb.rs`, `scripts/test-surface-fact-capture-kernel.ps1`, and
+`seed-kernel/src/surface_fact_capture.rs`. Accept and secure only if the diff
+matches ADR 0038/0039/0040/0042, captures before `usb::init()`, emits bounded
+Wire V1 frames, and introduces no PCI/USB ownership escape. Then build/package
+the capture image. Do not write the physical stick without an explicit final
+disk-number confirmation from the owner.
 
 ## Recently (exactly 3, newest first)
 
-### 2026-07-22 - PCI P4 predicate green, reviews rejected
-Ten production-logic host tests passed externally; R-C/R-D found remaining
-boundary and false-green defects, so no acceptance followed.
+### 2026-07-22 - Header-bounded PCI proof accepted
+`e926f06`: 21/21 runtime tests, two transport mutation negatives, and fresh
+R-G/R-H accepts; exact two-file slice committed and pushed.
 
-### 2026-07-22 - Worker sandbox restored
-Codex 0.145.0 workspace-write smoke test succeeded in canonical main; linker
-execution remains denied only inside managed workers and is verified externally.
+### 2026-07-22 - PCI architecture rescope accepted
+`6f27bcc`: ADR 0042 separates slot consumption from BAR usability and requires
+header windows, fail-closed validation, exact restore, and emitted-code proof.
 
-### 2026-07-21 - PCI u16 decision recorded
-`dc22477`: ADR 0041 requires real word cycles so Command writes preserve PCI
-Status W1C bits.
+### 2026-07-22 - Initial PCI seam parked
+`3f0213f`: two earlier implementation/review strategies were rejected; no
+unsafe product diff was accepted.
