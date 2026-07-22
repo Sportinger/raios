@@ -137,3 +137,109 @@ R1 und R2 bleiben verbraucht und unveränderlich. Alle übrigen R2-Grenzen und
 die Autorisierung für nur ein resultierendes Image/Hardwaretest bleiben
 unverändert. Eine weitere Ablehnung am selben Ziel beendet diese Strategie;
 danach wird nicht automatisch eine vierte Variante gestartet.
+
+## R3-Dispatch-Recovery-Erweiterung (2026-07-22)
+
+Der mit Commit `bfa9fef` (`bfa9fef535d160f210c3cb1bf5726015c008993e`)
+ausgeführte R3-Launcher verbrauchte
+`target/state/adr0045-h26-r3.claim` mit SHA-256
+`b32ef3b8e56f3eba19e846160cf84ffe7c014b6933126d8e766c7d1c03bcf11d`.
+Der Fehlernachweis `target/lanes/h26-r3-race-repair.stdout.log` hat SHA-256
+`4d8bf26aecef9ff08ef78485691f81909a6b03dd762cb8510492c26bb083e7c8`
+und enthält exakt `accepted=false`, `child_started=false` und
+`codex_child_start_failed`. Windows wies den als native ausführbare Datei
+übergebenen PowerShell-Shim vor dem Child-Start ab. Es gibt keinen
+R3-Workerbericht `target/lanes/h26-r3-race-repair-report.md`. Damit ist der
+R3-Claim verbraucht, aber weder ein R3-Produktlauf noch eine neue
+Produktvariante entstanden.
+
+Die bestehende Owner-Autorisierung für automatische, notwendige und eng im
+H26-Ziel liegende R3-Reparatur- und Review-Schritte deckt genau eine Recovery
+dieses bewiesenen Infrastrukturfehlers vor Child-Start. Dafür und nur dafür
+werden folgende drei neuen, fest benannten Elemente autorisiert:
+
+- Token `ADR-0045-H26-R3-DISPATCH-RECOVERY-1`;
+- Claim `target/state/adr0045-h26-r3-dispatch-recovery-1.claim`;
+- Schema `raios.adr0045_h26_r3_dispatch_recovery_1_claim.v1`.
+
+Der Claim wird genau einmal atomar mit `CreateNew` erzeugt. R1, R2 und R3
+bleiben bytegenau unveränderlich und verbraucht; Löschen, Erstatten,
+Freigeben, Umbenennen oder Wiederverwenden eines alten Claims ist verboten.
+Der Recovery-Pfad akzeptiert ausschließlich den neuen Token, Claim-Pfad und
+das neue Schema. Alte Token, Claim-Pfade und Schemas dürfen nur als exakt
+hashgebundene Beweise gelesen, nie als Recovery-Autorität interpretiert
+werden.
+
+Die Recovery dispatcht ausschließlich die unveränderten Bytes von
+`target/lanes/h26-r3-race-repair-order.md` mit SHA-256
+`0ef25b8ce5fdefe15790ec83ff7803c3597b4f9933008fc27674367f18172585`.
+Sie bindet unverändert:
+
+- Maschine `surface-pro-4` und Manifest SHA-256
+  `08c8d977f48f5a846edecaf31cc4d205291105dc5c821960df21621e17b36189`;
+- ausschließlich den Fakt `/devices/2/identity = Marvell 88W8897` und die
+  Sandbox `workspace-write`;
+- `seed-kernel/src/wifi.rs` mit Prehash
+  `690aa68efaa835fa1df59cfd7316472828e438976e68238e021b6b9c0496f91e`;
+- `seed-kernel/src/marvell_wifi_pcie.rs` mit Prehash
+  `d53f1eeedd66fe529d2ad55ab6f821e731135971b17c4b6f584f1105c68c5595`;
+- `scripts/test-marvell-connection-telemetry.ps1` mit Prehash
+  `fddb8474d46d53b802a5e93b9780b4343a305400c20bdf5026d380608174c31f`;
+- `scripts/test-wifi-ephemeral-physical.ps1` mit Prehash
+  `f9e818260b369f17b984af06ba86cc795adca14415228265609eddcea228ac65`.
+
+Vor Claim-Erzeugung gelten in dieser Reihenfolge folgende harte Gates:
+
+1. Der korrigierte Launcher ist committed. Sein vollständiger Git-Commit und
+   der SHA-256 der exakten Launcher-Datei sind in der Recovery-Autorität
+   festgelegt. Eine frische unabhängige Read-only-Review muss sowohl die
+   Korrektur als auch die nachfolgende Windows-Regression akzeptiert haben.
+2. Ein produktionsnaher Windows-Test durchläuft denselben Resolver und
+   Startpfad mit einem `.ps1`-Shim. Er beweist native Host-Auflösung,
+   `UseShellExecute=false`, exakte Argumente und exakte stdin-Bytes bei genau
+   einem gestarteten Child. Weder `.ps1` noch `.cmd` dürfen direkt als
+   `ProcessStartInfo.FileName` verwendet werden. Ein nicht auflösbarer oder
+   nicht unterstützter Startplan muss vor Claim-Erzeugung ablehnen.
+3. Der Windows-Startplan wird vor Claim-Erzeugung vollständig aufgelöst und
+   festgelegt: native Host-Datei, gegebenenfalls Shim, deren kanonische Pfade
+   und SHA-256, strukturierte Argumente, stdin-Hash und genau ein Child. Ein
+   späteres erneutes Auflösen nach Pfad ist verboten.
+4. R3-Claim, Fehlerlog, R3-Auftrag, alle vier Produkt-Prehashes, der
+   korrigierte Launcher-Commit samt Datei-Hash, Maschine, Manifest, Fakt,
+   Sandbox und der aufgelöste Windows-Startplan werden gegen die oben
+   festgelegten exakten Werte validiert. Jeder Mismatch lehnt vor dem Claim ab.
+5. Alle dateibasierten Eingaben und aufgelösten Startdateien werden vor der
+   Validierung einmal geöffnet und bis zum erfolgreichen Dispatch-Handoff mit
+   nicht schreibbaren und nicht löschbaren Handles gegen Austausch geleast;
+   Hashes und Start stammen aus diesen Handles, nicht aus erneut geöffneten
+   Pfaden. Die Produkt-Leases werden erst nach erfolgreichem Child-Start und
+   vollständiger stdin-Übergabe für die autorisierte R3-Bearbeitung gelöst.
+6. Erst nach diesen Gates wird der neue Claim erzeugt und daraus höchstens ein
+   Child gestartet. Der Claim bindet alle validierten Werte einschließlich
+   altem Claim-, Fehlerlog-, Auftrags- und Produkt-Hash, vollständigem
+   Launcher-Commit und -Datei-Hash sowie einem Digest des Startplans.
+
+Jedes Scheitern nach Erzeugung des Recovery-Claims lässt ihn dauerhaft
+verbraucht; es gibt weder Claim-Refund noch einen zweiten Infrastrukturversuch.
+Ein zweiter Infrastrukturfehler sowie jede Produkt- oder Review-Ablehnung
+blockieren H26 ohne automatische weitere Variante. Ein Mismatch vor der
+Claim-Erzeugung autorisiert weder Austausch noch Reparatur des Beweises,
+sondern lehnt diese Recovery ab. Insbesondere ist keine Recovery bei
+verändertem Claim, Fehlerlog, Auftrag, Produkt-Prehash, Launcher,
+Startplan, Maschine, Manifest, Fakt oder Sandbox und kein zweiter Versuch
+autorisiert.
+
+Diese Entscheidung ist keine neue Produktvariante und kein R4. Sie erweitert
+weder Scope noch DoD, Hardwareannahmen, Fakt-Autorität, Produktdateien,
+Image-Anzahl oder Hardwaretest. Sie schafft keinen generischen Retryparameter,
+keinen Claim-Override und kein wiederverwendbares Recovery-Schema. Nach einem
+erfolgreichen Child-Start gelten unverändert Auftrag und Ergebnisregeln von R3
+sowie sämtliche bisherigen Grenzen dieser ADR.
+
+Beide frischen unabhängigen Read-only-Meinungen empfahlen diese eng gebundene
+Recovery und lehnten eine Wiederverwendung des R3-Claims ab. Opinion A forderte
+dafür eine explizite Owner-Autorisierung. Opinion B bewertete die bereits für
+notwendige enge H26-Reparatur- und Review-Schritte erteilte automatische
+Owner-Autorisierung als ausreichend. Die Entscheidung folgt Opinion B in
+dieser Zuständigkeitsfrage: Die vorhandene Owner-Autorisierung deckt genau
+diese einmalige Infrastruktur-Recovery und nichts darüber hinaus.
