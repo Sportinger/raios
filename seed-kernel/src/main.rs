@@ -272,6 +272,15 @@ fn early_main() -> ! {
             surface_fact_capture::CapturePhase::Smbios => {
                 status_ui.render_early_boot_capture_smbios();
             }
+            surface_fact_capture::CapturePhase::SmbiosEntryPoint => {
+                status_ui.render_early_boot_capture_smbios_entry_point();
+            }
+            surface_fact_capture::CapturePhase::SmbiosTable => {
+                status_ui.render_early_boot_capture_smbios_table();
+            }
+            surface_fact_capture::CapturePhase::SmbiosParse => {
+                status_ui.render_early_boot_capture_smbios_parse();
+            }
             surface_fact_capture::CapturePhase::MemoryMap => {
                 status_ui.render_early_boot_capture_memory_map();
             }

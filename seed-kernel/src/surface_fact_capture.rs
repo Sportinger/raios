@@ -24,6 +24,9 @@ const CPUID_LEAF7_MAX_SUBLEAF: u32 = 32;
 pub enum CapturePhase {
     Cpuid,
     Smbios,
+    SmbiosEntryPoint,
+    SmbiosTable,
+    SmbiosParse,
     MemoryMap,
     Pci,
     Finalize,
@@ -46,7 +49,7 @@ pub fn capture(
     progress(CapturePhase::Cpuid);
     capture_cpuid(&mut payloads)?;
     progress(CapturePhase::Smbios);
-    capture_smbios(smbios, memory_map, hhdm, &mut payloads)?;
+    capture_smbios(smbios, memory_map, hhdm, &mut progress, &mut payloads)?;
     progress(CapturePhase::MemoryMap);
     capture_memory_map(memory_map, &mut payloads)?;
 
@@ -202,10 +205,12 @@ fn capture_smbios(
     response: &SmbiosResponse,
     memory_map: &MemoryMapResponse,
     hhdm: &HhdmResponse,
+    progress: &mut impl FnMut(CapturePhase),
     payloads: &mut Vec<CapturePayload>,
 ) -> Result<(), &'static str> {
     let (table_phys, table_len, declared_structure_count) = if let Some(address) = response.entry_64() {
         let pointer = PhysicalSmbiosPointer::new(address.get() as u64, hhdm)?;
+        progress(CapturePhase::SmbiosEntryPoint);
         let entry = pointer.slice(SMBIOS64_MIN_LEN, memory_map)?;
         if &entry[..5] != b"_SM3_" { return Err("surface_capture_smbios64_anchor"); }
         let length = entry[6] as usize;
@@ -217,6 +222,7 @@ fn capture_smbios(
         (read_u64(entry, 16)?, read_u32(entry, 12)? as usize, None)
     } else if let Some(address) = response.entry_32() {
         let pointer = PhysicalSmbiosPointer::new(address.get() as u64, hhdm)?;
+        progress(CapturePhase::SmbiosEntryPoint);
         let entry = pointer.slice(SMBIOS32_MIN_LEN, memory_map)?;
         if &entry[..4] != b"_SM_" { return Err("surface_capture_smbios32_anchor"); }
         let length = entry[5] as usize;
@@ -237,7 +243,9 @@ fn capture_smbios(
     };
     if table_len == 0 { return Err("surface_capture_smbios_table_empty"); }
     let table_pointer = PhysicalSmbiosPointer::new(table_phys, hhdm)?;
+    progress(CapturePhase::SmbiosTable);
     let table = table_pointer.slice(table_len, memory_map)?;
+    progress(CapturePhase::SmbiosParse);
     parse_smbios_table(table, declared_structure_count, payloads)
 }
 

@@ -83,11 +83,15 @@ $script:ExpectedBootBackgrounds = @("APP_BLUE", "SURFACE_BG", "HAIRLINE", "APP_A
 $script:ExpectedCaptureMethods = @(
     "render_early_boot_capture_cpuid",
     "render_early_boot_capture_smbios",
+    "render_early_boot_capture_smbios_entry_point",
+    "render_early_boot_capture_smbios_table",
+    "render_early_boot_capture_smbios_parse",
     "render_early_boot_capture_memory_map",
     "render_early_boot_capture_pci",
     "render_early_boot_capture_finalize"
 )
-$script:ExpectedCapturePhases = @("Cpuid", "Smbios", "MemoryMap", "Pci", "Finalize")
+$script:ExpectedTopLevelCapturePhases = @("Cpuid", "Smbios", "MemoryMap", "Pci", "Finalize")
+$script:ExpectedCapturePhases = @("Cpuid", "Smbios", "SmbiosEntryPoint", "SmbiosTable", "SmbiosParse", "MemoryMap", "Pci", "Finalize")
 $script:ExpectedCaptureBackgrounds = @("APP_BLUE", "SURFACE_BG", "HAIRLINE", "APP_AMBER", "APP_GREEN")
 $script:ExpectedMethods = @(
     "render_early_boot_before_surface",
@@ -95,6 +99,9 @@ $script:ExpectedMethods = @(
     "render_early_boot_after_console",
     "render_early_boot_capture_cpuid",
     "render_early_boot_capture_smbios",
+    "render_early_boot_capture_smbios_entry_point",
+    "render_early_boot_capture_smbios_table",
+    "render_early_boot_capture_smbios_parse",
     "render_early_boot_capture_memory_map",
     "render_early_boot_capture_pci",
     "render_early_boot_capture_finalize",
@@ -104,8 +111,8 @@ $script:ExpectedMethods = @(
     "render_early_boot_persist_failed",
     "render_early_boot_surface_failed"
 )
-$script:ExpectedCodes = @("EB1", "EB1P", "EB1C", "SC", "SS", "SM", "SP", "SV", "EB2", "EB3", "EB4P", "EB4E", "EB4F")
-$script:ExpectedBackgrounds = @("APP_BLUE", "SURFACE_BG", "HAIRLINE", "APP_BLUE", "SURFACE_BG", "HAIRLINE", "APP_AMBER", "APP_GREEN", "APP_AMBER", "APP_GREEN", "SURFACE_ALT", "APP_BG", "APP_RED")
+$script:ExpectedCodes = @("EB1", "EB1P", "EB1C", "SC", "SS", "SI", "ST", "SR", "SM", "SP", "SV", "EB2", "EB3", "EB4P", "EB4E", "EB4F")
+$script:ExpectedBackgrounds = @("APP_BLUE", "SURFACE_BG", "HAIRLINE", "APP_BLUE", "SURFACE_BG", "APP_AMBER", "HAIRLINE", "APP_BLUE", "HAIRLINE", "APP_AMBER", "APP_GREEN", "APP_AMBER", "APP_GREEN", "SURFACE_ALT", "APP_BG", "APP_RED")
 $script:MaxScale = 4
 $script:GlyphWidth = 8
 $script:GlyphHeight = 8
@@ -121,18 +128,26 @@ function Assert-CheckpointSources(
     $persistPhase = Slice-Between $earlyMain "    if let Ok(records) = surface_capture {" "    let iommu_report = iommu_vtd::probe();"
     $captureMapping = Slice-Between $earlyMain "    let surface_capture = surface_fact_capture::capture(" "    status_ui.render_early_boot_before_usb();"
     $captureFunction = Slice-Between $CaptureSource "pub fn capture(" "fn capture_cpuid("
+    $captureSmbios = Slice-Between $CaptureSource "fn capture_smbios(" "fn parse_smbios_table("
 
     Require ([regex]::Matches($CaptureSource, '\bpub enum CapturePhase\b').Count -eq 1) "CapturePhase public enum count changed"
-    Require-Match $CaptureSource 'pub enum CapturePhase\s*\{\s*Cpuid,\s*Smbios,\s*MemoryMap,\s*Pci,\s*Finalize,\s*\}' "CapturePhase is not the exact ordered fieldless public enum"
+    Require-Match $CaptureSource 'pub enum CapturePhase\s*\{\s*Cpuid,\s*Smbios,\s*SmbiosEntryPoint,\s*SmbiosTable,\s*SmbiosParse,\s*MemoryMap,\s*Pci,\s*Finalize,\s*\}' "CapturePhase is not the exact ordered fieldless public enum"
     Require-Match $captureFunction 'pub fn capture\(.*mut progress: impl FnMut\(CapturePhase\),\s*\)\s*->\s*Result<Vec<CaptureRecord>, &''static str>' "capture progress callback signature is missing or dynamic"
     $observedCapturePhases = @(Get-CapturePhaseCalls $captureFunction)
-    Require (Test-ExactSequence $observedCapturePhases $script:ExpectedCapturePhases) "capture progress callbacks are missing, duplicated, or reordered"
-    Require ([regex]::Matches($captureFunction, '\bprogress\(').Count -eq $script:ExpectedCapturePhases.Count) "capture invokes progress outside the five phase boundaries"
+    Require (Test-ExactSequence $observedCapturePhases $script:ExpectedTopLevelCapturePhases) "top-level capture progress callbacks are missing, duplicated, or reordered"
+    Require ([regex]::Matches($captureFunction, '\bprogress\(').Count -eq $script:ExpectedTopLevelCapturePhases.Count) "capture invokes progress outside the five top-level phase boundaries"
     Require-Match $captureFunction 'progress\(CapturePhase::Cpuid\);\s*capture_cpuid\(&mut payloads\)\?;' "CPUID progress is not immediately before CPUID capture"
-    Require-Match $captureFunction 'progress\(CapturePhase::Smbios\);\s*capture_smbios\(smbios, memory_map, hhdm, &mut payloads\)\?;' "SMBIOS progress is not immediately before SMBIOS capture"
+    Require-Match $captureFunction 'progress\(CapturePhase::Smbios\);\s*capture_smbios\(smbios, memory_map, hhdm, &mut progress, &mut payloads\)\?;' "SMBIOS progress is not immediately before SMBIOS capture"
     Require-Match $captureFunction 'progress\(CapturePhase::MemoryMap\);\s*capture_memory_map\(memory_map, &mut payloads\)\?;' "memory-map progress is not immediately before memory-map capture"
     Require-Match $captureFunction 'progress\(CapturePhase::Pci\);\s*let functions = pci::enumerate_functions_for_capture\(\)\?;' "PCI progress is not immediately before PCI capture"
     Require-Match $captureFunction 'progress\(CapturePhase::Finalize\);\s*let capture_id = capture_id\(nonce, &payloads\);' "finalize progress is not immediately before finalization"
+    Require-Match $captureSmbios 'fn capture_smbios\(.*progress: &mut impl FnMut\(CapturePhase\),\s*payloads: &mut Vec<CapturePayload>,' "SMBIOS substage callback signature is missing or dynamic"
+    Require-Match $captureSmbios 'if let Some\(address\) = response\.entry_64\(\).*?let pointer = PhysicalSmbiosPointer::new\(address\.get\(\) as u64, hhdm\)\?;\s*progress\(CapturePhase::SmbiosEntryPoint\);\s*let entry = pointer\.slice\(SMBIOS64_MIN_LEN, memory_map\)\?;' "SI is not immediately before the first SMBIOS64 entry-point slice"
+    Require-Match $captureSmbios 'else if let Some\(address\) = response\.entry_32\(\).*?let pointer = PhysicalSmbiosPointer::new\(address\.get\(\) as u64, hhdm\)\?;\s*progress\(CapturePhase::SmbiosEntryPoint\);\s*let entry = pointer\.slice\(SMBIOS32_MIN_LEN, memory_map\)\?;' "SI is not immediately before the first SMBIOS32 entry-point slice"
+    Require ([regex]::Matches($captureSmbios, 'progress\(CapturePhase::SmbiosEntryPoint\);').Count -eq 2) "SI callback count changed outside the exclusive SMBIOS32/64 branches"
+    Require-Match $captureSmbios 'let table_pointer = PhysicalSmbiosPointer::new\(table_phys, hhdm\)\?;\s*progress\(CapturePhase::SmbiosTable\);\s*let table = table_pointer\.slice\(table_len, memory_map\)\?;' "ST is not immediately before the SMBIOS table slice"
+    Require-Match $captureSmbios 'let table = table_pointer\.slice\(table_len, memory_map\)\?;\s*progress\(CapturePhase::SmbiosParse\);\s*parse_smbios_table\(table, declared_structure_count, payloads\)' "SR is not immediately before the SMBIOS parser"
+    Require ([regex]::Matches($captureSmbios, '\bprogress\(').Count -eq 4) "SMBIOS invokes progress outside the four static substage sites"
 
     $mappingMatches = @([regex]::Matches(
         $captureMapping,
@@ -161,6 +176,9 @@ function Assert-CheckpointSources(
         "let surface_capture = surface_fact_capture::capture(",
         "status_ui.render_early_boot_capture_cpuid()",
         "status_ui.render_early_boot_capture_smbios()",
+        "status_ui.render_early_boot_capture_smbios_entry_point()",
+        "status_ui.render_early_boot_capture_smbios_table()",
+        "status_ui.render_early_boot_capture_smbios_parse()",
         "status_ui.render_early_boot_capture_memory_map()",
         "status_ui.render_early_boot_capture_pci()",
         "status_ui.render_early_boot_capture_finalize()",
@@ -341,6 +359,29 @@ $reorderedCaptureProgress = $capture.Replace($cpuidProgressToken, $captureProgre
 Require ($reorderedCaptureProgress -cne $capture) "capture-progress reorder negative did not mutate the source"
 Assert-RejectedMutation $main $genesis $reorderedCaptureProgress "SURFACE-EARLY-BOOT-NEG-CAPTURE-CALL-REORDER"
 
+$smbiosSubstageProgress = @(
+    @{ Name = "ENTRY"; Token = "progress(CapturePhase::SmbiosEntryPoint);"; Count = 2 },
+    @{ Name = "TABLE"; Token = "progress(CapturePhase::SmbiosTable);"; Count = 1 },
+    @{ Name = "PARSE"; Token = "progress(CapturePhase::SmbiosParse);"; Count = 1 }
+)
+foreach ($substage in $smbiosSubstageProgress) {
+    $count = [regex]::Matches($capture, [regex]::Escape($substage.Token)).Count
+    Require ($count -eq $substage.Count) "SMBIOS $($substage.Name) progress token count changed"
+    $missingSubstage = $capture.Replace($substage.Token, "")
+    Require ($missingSubstage -cne $capture) "SMBIOS $($substage.Name) missing negative did not mutate the source"
+    Assert-RejectedMutation $main $genesis $missingSubstage "SURFACE-EARLY-BOOT-NEG-SMBIOS-$($substage.Name)-MISSING"
+}
+
+$smbiosTableProgressToken = "progress(CapturePhase::SmbiosTable);"
+$smbiosParseProgressToken = "progress(CapturePhase::SmbiosParse);"
+$smbiosSubstageSentinel = "progress(CapturePhase::SmbiosSwapSentinel);"
+Require (-not $capture.Contains($smbiosSubstageSentinel)) "SMBIOS substage reorder sentinel already exists"
+$reorderedSmbiosSubstages = $capture.Replace($smbiosTableProgressToken, $smbiosSubstageSentinel).
+    Replace($smbiosParseProgressToken, $smbiosTableProgressToken).
+    Replace($smbiosSubstageSentinel, $smbiosParseProgressToken)
+Require ($reorderedSmbiosSubstages -cne $capture) "SMBIOS substage reorder negative did not mutate the source"
+Assert-RejectedMutation $main $genesis $reorderedSmbiosSubstages "SURFACE-EARLY-BOOT-NEG-SMBIOS-SUBSTAGE-REORDER"
+
 $afterProviderName = "render_early_boot_after_provider_config"
 $afterConsoleName = "render_early_boot_after_console"
 $swapSentinel = "render_early_boot_swap_checkpoint"
@@ -372,9 +413,21 @@ try {
         $_.StartsWith("-", [StringComparison]::Ordinal) -and
         -not $_.StartsWith("---", [StringComparison]::Ordinal)
     })
-    Require ($removedRust.Count -eq 0) "existing Rust capture operations, errors, or ordering changed"
+    $allowedRemovedRust = @(
+        "-    capture_smbios(smbios, memory_map, hhdm, &mut payloads)?;"
+    )
+    Require (Test-ExactSequence $removedRust $allowedRemovedRust) "Rust removals exceed the one callback-threading replacement"
     $forbiddenRust = '\bunsafe\b|\bpci::|\bwifi::|program_persistence::|structured_store|memory_store|usb::append|append_surface_fact_capture|reclog|msc_'
     Require (($addedRust -join [Environment]::NewLine) -notmatch $forbiddenRust) "Rust additions introduce unsafe, PCI, Wi-Fi, or persistence behavior"
+
+    $baselineCapture = @(git show HEAD:seed-kernel/src/surface_fact_capture.rs) -join [Environment]::NewLine
+    if ($LASTEXITCODE -ne 0) { throw "git show baseline capture failed" }
+    $baselineSmbios = Slice-Between $baselineCapture "fn capture_smbios(" "fn parse_smbios_table("
+    $currentSmbios = Slice-Between $capture "fn capture_smbios(" "fn parse_smbios_table("
+    $baselineDangerousSlices = [regex]::Matches($baselineSmbios, '\.slice\(').Count
+    $currentDangerousSlices = [regex]::Matches($currentSmbios, '\.slice\(').Count
+    Require ($baselineDangerousSlices -eq 5) "baseline SMBIOS dangerous-slice model changed"
+    Require ($currentDangerousSlices -eq $baselineDangerousSlices) "SMBIOS dangerous dereference count changed"
 
     $expectedPaths = @(
         "scripts/test-surface-early-boot-checkpoints.ps1",

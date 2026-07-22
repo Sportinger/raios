@@ -119,6 +119,18 @@ impl ShellHost {
         self.render_early_boot_checkpoint("SS", SURFACE_BG);
     }
 
+    pub fn render_early_boot_capture_smbios_entry_point(&mut self) {
+        self.render_early_boot_checkpoint("SI", APP_AMBER);
+    }
+
+    pub fn render_early_boot_capture_smbios_table(&mut self) {
+        self.render_early_boot_checkpoint("ST", HAIRLINE);
+    }
+
+    pub fn render_early_boot_capture_smbios_parse(&mut self) {
+        self.render_early_boot_checkpoint("SR", APP_BLUE);
+    }
+
     pub fn render_early_boot_capture_memory_map(&mut self) {
         self.render_early_boot_checkpoint("SM", HAIRLINE);
     }
