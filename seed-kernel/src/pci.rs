@@ -7,7 +7,7 @@ const CONFIG_DATA: u16 = 0xCFC;
 
 static PCI_LOCK: Mutex<()> = Mutex::new(());
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PciAddress {
     pub bus: u8,
     pub device: u8,
@@ -46,6 +46,7 @@ pub struct PciFunction {
     pub class: u8,
     pub subclass: u8,
     pub prog_if: u8,
+    pub revision: u8,
     pub interrupt_line: u8,
     pub interrupt_pin: u8,
     pub bars: Vec<PciBar>,
@@ -251,6 +252,100 @@ impl PciConfigBackend for AddressConfigBackend {
 
     fn write_u16(&mut self, offset: u8, value: u16) {
         self.address.write_u16(offset, value);
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct PciCaptureMetadata {
+    identity: u32,
+    command: u16,
+    class_revision: u32,
+    header_type: u8,
+    irq: u16,
+}
+
+impl PciCaptureMetadata {
+    fn bar_window(self) -> Result<BarWindow, &'static str> {
+        let count = match self.header_type & 0x7f {
+            0x00 => 6,
+            0x01 => 2,
+            0x02 => 1,
+            _ => return Err("pci_capture_header_invalid"),
+        };
+        Ok(BarWindow { count })
+    }
+
+    fn into_function(self, address: PciAddress, bars: Vec<PciBar>) -> PciFunction {
+        PciFunction {
+            bus: address.bus,
+            device: address.device,
+            function: address.function,
+            vendor_id: self.identity as u16,
+            device_id: (self.identity >> 16) as u16,
+            class: (self.class_revision >> 24) as u8,
+            subclass: (self.class_revision >> 16) as u8,
+            prog_if: (self.class_revision >> 8) as u8,
+            revision: self.class_revision as u8,
+            interrupt_line: self.irq as u8,
+            interrupt_pin: (self.irq >> 8) as u8,
+            bars,
+        }
+    }
+}
+
+struct CapturedPciFunction {
+    address: PciAddress,
+    metadata: PciCaptureMetadata,
+    bars: Vec<PciBar>,
+}
+
+trait PciCaptureConfigBackend {
+    fn read_u32(&mut self, address: PciAddress, offset: u8) -> u32;
+    fn read_u16(&mut self, address: PciAddress, offset: u8) -> u16;
+    fn write_u32(&mut self, address: PciAddress, offset: u8, value: u32);
+    fn write_u16(&mut self, address: PciAddress, offset: u8, value: u16);
+}
+
+struct HardwareCaptureConfigBackend;
+
+impl PciCaptureConfigBackend for HardwareCaptureConfigBackend {
+    fn read_u32(&mut self, address: PciAddress, offset: u8) -> u32 {
+        address.read_u32(offset)
+    }
+
+    fn read_u16(&mut self, address: PciAddress, offset: u8) -> u16 {
+        address.read_u16(offset)
+    }
+
+    fn write_u32(&mut self, address: PciAddress, offset: u8, value: u32) {
+        address.write_u32(offset, value);
+    }
+
+    fn write_u16(&mut self, address: PciAddress, offset: u8, value: u16) {
+        address.write_u16(offset, value);
+    }
+}
+
+struct CaptureFunctionBackend<'a, B> {
+    backend: &'a mut B,
+    address: PciAddress,
+}
+
+impl<B: PciCaptureConfigBackend> PciConfigBackend for CaptureFunctionBackend<'_, B> {
+    fn read_u32(&mut self, offset: u8) -> u32 {
+        self.backend.read_u32(self.address, offset)
+    }
+
+    fn read_u16(&mut self, offset: u8) -> u16 {
+        self.backend.read_u16(self.address, offset)
+    }
+
+    fn write_u32(&mut self, offset: u8, value: u32) {
+        self.backend.write_u32(self.address, offset, value);
+    }
+
+    fn write_u16(&mut self, offset: u8, value: u16) {
+        self.backend.write_u16(self.address, offset, value);
     }
 }
 
@@ -505,6 +600,171 @@ fn read_bars_with_backend(backend: &mut impl PciConfigBackend) -> Vec<PciBar> {
     bars
 }
 
+fn read_capture_metadata_with_backend(
+    backend: &mut impl PciConfigBackend,
+) -> Result<PciCaptureMetadata, &'static str> {
+    let identity = backend.read_u32(0x00);
+    if identity as u16 == u16::MAX || (identity >> 16) as u16 == u16::MAX {
+        return Err("pci_capture_identity_unavailable");
+    }
+
+    let command = backend.read_u16(0x04);
+    let class_revision = backend.read_u32(0x08);
+    let header = backend.read_u32(0x0c);
+    let irq = backend.read_u16(0x3c);
+    if command == u16::MAX || class_revision == u32::MAX || header == u32::MAX || irq == u16::MAX {
+        return Err("pci_capture_metadata_unavailable");
+    }
+
+    let metadata = PciCaptureMetadata {
+        identity,
+        command,
+        class_revision,
+        header_type: (header >> 16) as u8,
+        irq,
+    };
+    metadata.bar_window()?;
+    if metadata.irq >> 8 > 4 {
+        return Err("pci_capture_irq_invalid");
+    }
+    Ok(metadata)
+}
+
+fn ensure_capture_metadata_unchanged(
+    before: PciCaptureMetadata,
+    after: PciCaptureMetadata,
+) -> Result<(), &'static str> {
+    if after.identity != before.identity {
+        return Err("pci_capture_identity_changed");
+    }
+    if after.header_type != before.header_type {
+        return Err("pci_capture_header_changed");
+    }
+    if after != before {
+        return Err("pci_capture_metadata_changed");
+    }
+    Ok(())
+}
+
+fn read_bars_for_capture_with_backend(
+    backend: &mut impl PciConfigBackend,
+    expected_identity: u32,
+    window: BarWindow,
+) -> Result<Vec<PciBar>, &'static str> {
+    let mut bars = Vec::new();
+    let mut index = 0;
+    while index < window.count {
+        let probe = read_bar_probe_in_window(backend, expected_identity, window, index);
+        index = index.saturating_add(probe.consumed_slots);
+        match probe.disposition {
+            BarDisposition::Usable(bar) => bars.push(bar),
+            BarDisposition::Empty | BarDisposition::Unassigned => {}
+            BarDisposition::Unavailable => return Err("pci_capture_bar_unavailable"),
+            BarDisposition::Invalid(_) => return Err("pci_capture_bar_invalid"),
+        }
+    }
+    Ok(bars)
+}
+
+fn capture_function_with_backend(
+    backend: &mut impl PciConfigBackend,
+    address: PciAddress,
+    expected_identity: u32,
+) -> Result<CapturedPciFunction, &'static str> {
+    let before = read_capture_metadata_with_backend(backend)?;
+    if before.identity != expected_identity {
+        return Err("pci_capture_identity_changed");
+    }
+    let bars = read_bars_for_capture_with_backend(backend, before.identity, before.bar_window()?)?;
+    let after = read_capture_metadata_with_backend(backend)?;
+    ensure_capture_metadata_unchanged(before, after)?;
+    Ok(CapturedPciFunction {
+        address,
+        metadata: before,
+        bars,
+    })
+}
+
+fn enumerate_functions_for_capture_with_backend(
+    backend: &mut impl PciCaptureConfigBackend,
+) -> Result<Vec<PciFunction>, &'static str> {
+    let mut captured = Vec::new();
+    let mut probed_identities = Vec::new();
+
+    for bus in 0..=255 {
+        for device in 0..32 {
+            let function_zero = PciAddress::new(bus, device, 0);
+            let identity = backend.read_u32(function_zero, 0x00);
+            probed_identities.push((function_zero, identity));
+            if identity as u16 == u16::MAX {
+                continue;
+            }
+
+            let function_zero_capture = {
+                let mut function_backend = CaptureFunctionBackend {
+                    backend: &mut *backend,
+                    address: function_zero,
+                };
+                capture_function_with_backend(&mut function_backend, function_zero, identity)?
+            };
+            let function_count = if function_zero_capture.metadata.header_type & 0x80 != 0 {
+                8
+            } else {
+                1
+            };
+            captured.push(function_zero_capture);
+
+            for function in 1..function_count {
+                let address = PciAddress::new(bus, device, function);
+                let identity = backend.read_u32(address, 0x00);
+                probed_identities.push((address, identity));
+                if identity as u16 == u16::MAX {
+                    continue;
+                }
+                let capture = {
+                    let mut function_backend = CaptureFunctionBackend {
+                        backend: &mut *backend,
+                        address,
+                    };
+                    capture_function_with_backend(&mut function_backend, address, identity)?
+                };
+                captured.push(capture);
+            }
+        }
+    }
+
+    for (address, identity) in probed_identities {
+        if backend.read_u32(address, 0x00) != identity {
+            return Err("pci_capture_topology_changed");
+        }
+    }
+    for capture in &captured {
+        let current = {
+            let mut function_backend = CaptureFunctionBackend {
+                backend: &mut *backend,
+                address: capture.address,
+            };
+            read_capture_metadata_with_backend(&mut function_backend)?
+        };
+        ensure_capture_metadata_unchanged(capture.metadata, current)?;
+    }
+
+    let mut functions = Vec::new();
+    for capture in captured {
+        functions.push(
+            capture
+                .metadata
+                .into_function(capture.address, capture.bars),
+        );
+    }
+    Ok(functions)
+}
+
+pub fn enumerate_functions_for_capture() -> Result<Vec<PciFunction>, &'static str> {
+    let mut backend = HardwareCaptureConfigBackend;
+    enumerate_functions_for_capture_with_backend(&mut backend)
+}
+
 pub fn read_interrupt_line(address: PciAddress) -> u8 {
     address.read_u8(0x3c)
 }
@@ -545,6 +805,7 @@ pub fn enumerate_functions() -> Vec<PciFunction> {
                     class: address.read_u8(0x0b),
                     subclass: address.read_u8(0x0a),
                     prog_if: address.read_u8(0x09),
+                    revision: address.read_u8(0x08),
                     interrupt_line: read_interrupt_line(address),
                     interrupt_pin: read_interrupt_pin(address),
                     bars,
@@ -846,6 +1107,7 @@ mod bar_sizing_tests {
         identity_after_mutation: Option<u32>,
         identity_after_reads: Option<(usize, u32)>,
         header_after_reads: Option<(usize, u32)>,
+        register_after_reads: [Option<(usize, u32)>; 16],
         mutated: bool,
     }
 
@@ -864,6 +1126,7 @@ mod bar_sizing_tests {
                 identity_after_mutation: None,
                 identity_after_reads: None,
                 header_after_reads: None,
+                register_after_reads: [None; 16],
                 mutated: false,
             }
         }
@@ -876,6 +1139,10 @@ mod bar_sizing_tests {
             let slot = (0x10 / 4 + index) as usize;
             self.registers[slot] = value;
             self.sizing_masks[slot] = sizing_mask;
+        }
+
+        fn set_register_after_reads(&mut self, offset: u8, unchanged_reads: usize, value: u32) {
+            self.register_after_reads[(offset / 4) as usize] = Some((unchanged_reads, value));
         }
 
         fn snapshot(&self) -> ([u32; 16], [bool; 16]) {
@@ -904,6 +1171,11 @@ mod bar_sizing_tests {
                     if self.read_counts[slot] > unchanged_reads {
                         return header;
                     }
+                }
+            }
+            if let Some((unchanged_reads, value)) = self.register_after_reads[slot] {
+                if self.read_counts[slot] > unchanged_reads {
+                    return value;
                 }
             }
             if offset >= 0x10 && self.sizing_active[slot] {
@@ -949,11 +1221,211 @@ mod bar_sizing_tests {
         }
     }
 
+    struct FakeCaptureConfig {
+        functions: Vec<(PciAddress, FakeConfig)>,
+    }
+
+    impl FakeCaptureConfig {
+        fn new(functions: Vec<(PciAddress, FakeConfig)>) -> Self {
+            Self { functions }
+        }
+
+        fn function_mut(&mut self, address: PciAddress) -> Option<&mut FakeConfig> {
+            self.functions
+                .iter_mut()
+                .find(|(candidate, _)| *candidate == address)
+                .map(|(_, config)| config)
+        }
+    }
+
+    impl PciCaptureConfigBackend for FakeCaptureConfig {
+        fn read_u32(&mut self, address: PciAddress, offset: u8) -> u32 {
+            self.function_mut(address)
+                .map(|c| c.read_u32(offset))
+                .unwrap_or(u32::MAX)
+        }
+        fn read_u16(&mut self, address: PciAddress, offset: u8) -> u16 {
+            self.function_mut(address)
+                .map(|c| c.read_u16(offset))
+                .unwrap_or(u16::MAX)
+        }
+        fn write_u32(&mut self, address: PciAddress, offset: u8, value: u32) {
+            self.function_mut(address).unwrap().write_u32(offset, value);
+        }
+        fn write_u16(&mut self, address: PciAddress, offset: u8, value: u16) {
+            self.function_mut(address).unwrap().write_u16(offset, value);
+        }
+    }
+
+    fn capture_config(identity: u32, class_revision: u32, header_type: u8, irq: u16) -> FakeConfig {
+        let mut config = FakeConfig::new(0xa55a_0003);
+        config.registers[0] = identity;
+        config.registers[2] = class_revision;
+        config.registers[3] = (header_type as u32) << 16;
+        config.registers[15] = irq as u32;
+        config
+    }
+
+    fn capture_single(config: FakeConfig) -> Result<Vec<PciFunction>, &'static str> {
+        let mut backend = FakeCaptureConfig::new(vec![(PciAddress::new(0, 0, 0), config)]);
+        enumerate_functions_for_capture_with_backend(&mut backend)
+    }
+
     fn assert_bar(bar: Option<PciBar>, kind: PciBarKind, base: u64, size: u64) {
         let bar = bar.expect("BAR must be implemented");
         assert_eq!(bar.kind, kind);
         assert_eq!(bar.base, base);
         assert_eq!(bar.size, size);
+    }
+
+    #[test]
+    fn capture_enumeration_returns_canonical_complete_functions_and_bars() {
+        let no_bars = capture_config(0x1000_1111, 0x0102_0304, 0x00, 0x0105);
+
+        let mut memory32 = capture_config(0x2000_2222, 0x0203_0405, 0x00, 0x0206);
+        memory32.set_bar(0, 0xd000_0000, 0xffff_f000);
+
+        let mut memory64 = capture_config(0x3000_3333, 0x0304_0506, 0x00, 0x0307);
+        memory64.set_bar(0, 0x3440_0004, 0xffe0_0004);
+        memory64.set_bar(1, 0x0000_0012, u32::MAX);
+        memory64.set_bar(2, 0xe000_0000, 0xffff_f000);
+
+        let mut unassigned = capture_config(0x4000_4444, 0x0405_0607, 0x00, 0x0408);
+        unassigned.set_bar(0, 0x0000_0004, 0xffff_f004);
+        unassigned.set_bar(1, 0, u32::MAX);
+
+        let mut backend = FakeCaptureConfig::new(vec![
+            (PciAddress::new(0, 2, 0), memory64),
+            (PciAddress::new(0, 0, 0), no_bars),
+            (PciAddress::new(0, 3, 0), unassigned),
+            (PciAddress::new(0, 1, 0), memory32),
+        ]);
+        let functions = enumerate_functions_for_capture_with_backend(&mut backend).unwrap();
+
+        assert_eq!(
+            functions
+                .iter()
+                .map(|function| (function.bus, function.device, function.function))
+                .collect::<Vec<_>>(),
+            vec![(0, 0, 0), (0, 1, 0), (0, 2, 0), (0, 3, 0)]
+        );
+        assert_eq!(functions[0].revision, 0x04);
+        assert!(functions[0].bars.is_empty());
+        assert_eq!(functions[1].bars.len(), 1);
+        assert_eq!(functions[1].bars[0].kind, PciBarKind::Memory32);
+        assert_eq!(functions[1].bars[0].base, 0xd000_0000);
+        assert_eq!(functions[2].bars.len(), 2);
+        assert_eq!(functions[2].bars[0].index, 0);
+        assert_eq!(functions[2].bars[0].kind, PciBarKind::Memory64);
+        assert_eq!(functions[2].bars[1].index, 2);
+        assert_eq!(functions[2].bars[1].kind, PciBarKind::Memory32);
+        assert!(functions[3].bars.is_empty());
+    }
+
+    #[test]
+    fn capture_enumeration_distinguishes_empty_headers_from_probe_rejection() {
+        for header_type in [0x00, 0x01, 0x02] {
+            let functions = capture_single(capture_config(
+                0x1000_1111,
+                0x0102_0304,
+                header_type,
+                0x0105,
+            ))
+            .unwrap();
+            assert_eq!(functions.len(), 1);
+            assert!(functions[0].bars.is_empty());
+        }
+
+        let mut unavailable = capture_config(0x2000_2222, 0x0203_0405, 0x00, 0x0206);
+        unavailable.set_bar(0, u32::MAX, u32::MAX);
+        assert_eq!(
+            capture_single(unavailable).unwrap_err(),
+            "pci_capture_bar_unavailable"
+        );
+
+        let mut all_ones_mask = capture_config(0x3000_3333, 0x0304_0506, 0x00, 0x0307);
+        all_ones_mask.set_bar(0, 0xd000_0000, u32::MAX);
+        assert_eq!(
+            capture_single(all_ones_mask).unwrap_err(),
+            "pci_capture_bar_unavailable"
+        );
+
+        let mut invalid = capture_config(0x4000_4444, 0x0405_0607, 0x00, 0x0408);
+        invalid.set_bar(0, 0xd000_0000, 0xffff_f0f0);
+        assert_eq!(
+            capture_single(invalid).unwrap_err(),
+            "pci_capture_bar_invalid"
+        );
+    }
+
+    #[test]
+    fn capture_enumeration_rejects_identity_class_and_header_changes() {
+        let mut identity = capture_config(0x1000_1111, 0x0102_0304, 0x00, 0x0105);
+        identity.set_register_after_reads(0x00, 8, 0x9999_8888);
+        assert_eq!(
+            capture_single(identity).unwrap_err(),
+            "pci_capture_identity_changed"
+        );
+
+        let mut class = capture_config(0x2000_2222, 0x0203_0405, 0x00, 0x0206);
+        class.set_register_after_reads(0x08, 1, 0x0908_0706);
+        assert_eq!(
+            capture_single(class).unwrap_err(),
+            "pci_capture_metadata_changed"
+        );
+
+        let mut header = capture_config(0x3000_3333, 0x0304_0506, 0x00, 0x0307);
+        header.set_register_after_reads(0x0c, 7, 0x0080_0000);
+        assert_eq!(
+            capture_single(header).unwrap_err(),
+            "pci_capture_header_changed"
+        );
+    }
+
+    #[test]
+    fn capture_enumeration_rejects_command_irq_and_mixed_metadata_changes() {
+        let mut command = capture_config(0x1000_1111, 0x0102_0304, 0x00, 0x0105);
+        command.set_register_after_reads(0x04, 1, 0xa55a_0007);
+        assert_eq!(
+            capture_single(command).unwrap_err(),
+            "pci_capture_metadata_changed"
+        );
+
+        let mut irq = capture_config(0x2000_2222, 0x0203_0405, 0x00, 0x0206);
+        irq.set_register_after_reads(0x3c, 1, 0x0000_0309);
+        assert_eq!(
+            capture_single(irq).unwrap_err(),
+            "pci_capture_metadata_changed"
+        );
+
+        let mut mixed = capture_config(0x3000_3333, 0x0304_0506, 0x00, 0x0307);
+        mixed.set_register_after_reads(0x08, 1, 0x0908_0706);
+        mixed.set_register_after_reads(0x3c, 1, 0x0000_010a);
+        assert_eq!(
+            capture_single(mixed).unwrap_err(),
+            "pci_capture_metadata_changed"
+        );
+    }
+
+    #[test]
+    fn capture_enumeration_rejects_all_ones_active_metadata() {
+        let mut command = capture_config(0x1000_1111, 0x0102_0304, 0x00, 0x0105);
+        command.registers[1] = 0xa55a_ffff;
+
+        let mut class = capture_config(0x2000_2222, 0x0203_0405, 0x00, 0x0206);
+        class.registers[2] = u32::MAX;
+
+        let mut header = capture_config(0x3000_3333, 0x0304_0506, 0x00, 0x0307);
+        header.registers[3] = u32::MAX;
+
+        let mut irq = capture_config(0x4000_4444, 0x0405_0607, 0x00, 0x0408);
+        irq.registers[15] = u16::MAX as u32;
+
+        let identity = capture_config(0xffff_5555, 0x0506_0708, 0x00, 0x0109);
+
+        for config in [command, class, header, irq, identity] {
+            assert!(capture_single(config).is_err());
+        }
     }
 
     #[test]

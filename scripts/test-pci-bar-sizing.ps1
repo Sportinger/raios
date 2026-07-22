@@ -17,6 +17,8 @@ $MutatedAssemblyPath = Join-Path $RunRoot 'pci-bar-transport-mutated.s'
 $MutatedPciPath = Join-Path $RunRoot 'pci-mutated.rs'
 $AssociationMutatedAssemblyPath = Join-Path $RunRoot 'pci-bar-transport-association-mutated.s'
 $AssociationMutatedPciPath = Join-Path $RunRoot 'pci-association-mutated.rs'
+$CaptureMutatedPciPath = Join-Path $RunRoot 'pci-capture-mutated.rs'
+$CaptureMutatedTestBinary = Join-Path $RunRoot 'pci-capture-mutated-tests.exe'
 $EmptyPath = Join-Path $RunRoot 'empty'
 $PredicatePath = Join-Path $RepoRoot 'scripts\test-pci-bar-sizing.ps1'
 $PciPath = (Join-Path $RepoRoot 'seed-kernel\src\pci.rs').Replace('\', '/')
@@ -26,9 +28,10 @@ $RustSysroot = (& rustup run nightly-2024-10-15 rustc --print sysroot).Trim()
 if ($LASTEXITCODE -ne 0) {
     throw 'querying pinned Rust sysroot failed'
 }
-$RustLld = Join-Path $RustSysroot 'lib\rustlib\x86_64-pc-windows-msvc\bin\rust-lld.exe'
-if (-not $MetadataOnly -and -not (Test-Path -LiteralPath $RustLld -PathType Leaf)) {
-    throw "pinned Rust linker missing: $RustLld"
+$RustLldSource = Join-Path $RustSysroot 'lib\rustlib\x86_64-pc-windows-msvc\bin\rust-lld.exe'
+$RustLld = Join-Path $RunRoot 'rust-lld.exe'
+if (-not $MetadataOnly -and -not (Test-Path -LiteralPath $RustLldSource -PathType Leaf)) {
+    throw "pinned Rust linker missing: $RustLldSource"
 }
 
 function Write-Harness([string]$Path, [string]$IncludedPciPath) {
@@ -144,6 +147,9 @@ try {
     New-Item -ItemType Directory -Path $SourceRoot -Force | Out-Null
     $env:TEMP = $RunRoot
     $env:TMP = $RunRoot
+    if (-not $MetadataOnly) {
+        Copy-Item -LiteralPath $RustLldSource -Destination $RustLld
+    }
 
     Compile-TransportAssembly $PciPath $AssemblyPath
     Assert-TransportAssembly $AssemblyPath
@@ -234,6 +240,55 @@ try {
         if ($LASTEXITCODE -ne 0) {
             throw 'PCI BAR sizing production-logic tests failed'
         }
+
+        $captureReject = '            BarDisposition::Unavailable => return Err("pci_capture_bar_unavailable"),'
+        if ($pciSource.IndexOf($captureReject, [StringComparison]::Ordinal) -lt 0 -or
+            $pciSource.IndexOf($captureReject, [StringComparison]::Ordinal) -ne
+            $pciSource.LastIndexOf($captureReject, [StringComparison]::Ordinal)) {
+            throw 'capture rejection mutation target is not unique'
+        }
+        $captureMutatedSource = $pciSource.Replace(
+            $captureReject,
+            '            BarDisposition::Unavailable => {}'
+        )
+        [IO.File]::WriteAllText(
+            $CaptureMutatedPciPath,
+            $captureMutatedSource,
+            (New-Object Text.UTF8Encoding($false))
+        )
+        Write-Harness $HarnessPath $CaptureMutatedPciPath
+        $captureRustcArgs = @(
+            '--edition=2021',
+            '--test',
+            '-C', 'opt-level=0',
+            '-C', "linker=$RustLld",
+            '-C', 'linker-flavor=lld-link',
+            '-o', $CaptureMutatedTestBinary,
+            $HarnessPath
+        )
+        & rustup run nightly-2024-10-15 rustc @captureRustcArgs
+        if ($LASTEXITCODE -ne 0) {
+            throw 'compiling capture rejection mutation failed'
+        }
+
+        $previousErrorActionPreference = $ErrorActionPreference
+        try {
+            $ErrorActionPreference = 'Continue'
+            $captureMutationOutput = @(& $CaptureMutatedTestBinary --nocapture 2>&1)
+            $captureMutationExit = $LASTEXITCODE
+        }
+        finally {
+            $ErrorActionPreference = $previousErrorActionPreference
+        }
+        if ($captureMutationExit -eq 0) {
+            throw 'capture rejection-to-empty mutation did not make the predicate fail'
+        }
+        $captureMutationText = $captureMutationOutput -join [Environment]::NewLine
+        if ($captureMutationText -notmatch
+            'capture_enumeration_distinguishes_empty_headers_from_probe_rejection') {
+            throw 'capture mutation failed for an unexpected reason'
+        }
+        Write-Host 'PCI-BAR-CAPTURE-MUTATION: rejection-to-empty mutation rejected.'
     }
 
     & git -C $RepoRoot diff --check -- seed-kernel/src/pci.rs scripts/test-pci-bar-sizing.ps1
@@ -242,6 +297,7 @@ try {
     }
     $predicateSource = [IO.File]::ReadAllText($PredicatePath)
     if ($predicateSource -notmatch 'Assert-TransportAssembly' -or
+        $predicateSource -notmatch 'PCI-BAR-CAPTURE-MUTATION' -or
         $predicateSource -notmatch 'diff --no-index --check') {
         throw 'predicate self-content checks are missing'
     }
