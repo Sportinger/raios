@@ -110,3 +110,30 @@ H26-Reparaturdispatch und diese ADR-Erweiterung. Dafür gilt:
 5. Die ursprüngliche Autorisierung für genau ein resultierendes
    Owner-custodied Image/Write/Cold-Boot/Extraction bleibt unverändert. R2
    autorisiert kein zweites Image und keinen zusätzlichen Hardwaretest.
+
+## R3-Erweiterung (2026-07-22)
+
+Die vorgeschriebene unabhängige R2-Review bestätigte die Scan-Sequenzprüfung
+und die normalen Lease-Pfade, lehnte den Diff aber wegen eines zusätzlichen
+Concurrent-start-Interleavings ab: Zwei Starts können die Vorprüfung bestehen;
+der verlierende Start kann danach den Snapshot des bereits installierten Jobs
+auf `Failed` setzen und dessen Lease hängen lassen. Außerdem waren die neuen
+Race-Predicates für diesen Punkt nur Quelltextmutationen statt eines
+ausführbaren Zustandsmodells.
+
+Der Owner hat für notwendige, weiterhin eng im H26-Ziel liegende Reparatur- und
+Review-Schritte automatische Fortsetzung autorisiert. Deshalb gilt genau ein
+weiterer Token `ADR-0045-H26-R3` mit eigenem atomaren Claim. R3 darf nur:
+
+1. Lease-Akquisition, `CONNECTION`-Job-Publikation und Snapshot-Übergang so
+   atomar koppeln, dass ein konkurrierender Start den Gewinner weder
+   überschreiben noch dessen Lease stranden kann;
+2. für Concurrent-start, konkurrierende Auswahl und alle terminalen
+   Lease-Freigaben ein ausführbares deterministisches Zustands-/Interleaving-
+   Modell plus negative Mutationen ergänzen;
+3. den vorhandenen Vier-Dateien-Diff innerhalb derselben Grenzen reparieren.
+
+R1 und R2 bleiben verbraucht und unveränderlich. Alle übrigen R2-Grenzen und
+die Autorisierung für nur ein resultierendes Image/Hardwaretest bleiben
+unverändert. Eine weitere Ablehnung am selben Ziel beendet diese Strategie;
+danach wird nicht automatisch eine vierte Variante gestartet.
