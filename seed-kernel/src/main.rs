@@ -262,6 +262,7 @@ fn early_main() -> ! {
     console::init();
     status_ui.render_early_boot_after_console();
     let surface_capture = surface_fact_capture::capture(
+        surface_fact_capture::PhysicalSmbiosAccessPolicy::Reject,
         SMBIOS_REQUEST.get_response(),
         MEMORY_MAP_REQUEST.get_response(),
         HHDM_REQUEST.get_response(),

@@ -21,8 +21,12 @@ function Slice-Between([string]$Text, [string]$Start, [string]$End) {
 $main = Get-Content -Raw -LiteralPath (Join-Path $RepoRoot "seed-kernel\src\main.rs")
 $capture = Get-Content -Raw -LiteralPath (Join-Path $RepoRoot "seed-kernel\src\surface_fact_capture.rs")
 $usb = Get-Content -Raw -LiteralPath (Join-Path $RepoRoot "seed-kernel\src\usb.rs")
+$captureFunction = Slice-Between $capture "pub fn capture(" "fn capture_cpuid("
 
-Require-Match $main 'static SMBIOS_REQUEST: SmbiosRequest.*surface_fact_capture::capture\(.*SMBIOS_REQUEST\.get_response\(\).*MEMORY_MAP_REQUEST\.get_response\(\).*HHDM_REQUEST\.get_response\(\).*usb::init\(\).*append_surface_fact_capture' "boot ordering or SMBIOS request missing"
+Require-Match $main 'static SMBIOS_REQUEST: SmbiosRequest.*surface_fact_capture::capture\(\s*surface_fact_capture::PhysicalSmbiosAccessPolicy::Reject,\s*SMBIOS_REQUEST\.get_response\(\).*MEMORY_MAP_REQUEST\.get_response\(\).*HHDM_REQUEST\.get_response\(\).*usb::init\(\).*append_surface_fact_capture' "boot ordering, SMBIOS request, or reject policy missing"
+Require-Match $capture 'pub enum PhysicalSmbiosAccessPolicy\s*\{\s*Reject,\s*Allow,\s*\}' "physical SMBIOS policy is not a fieldless Reject/Allow boundary"
+Require-Match $captureFunction 'progress\(CapturePhase::Smbios\);\s*match physical_smbios_access\s*\{\s*PhysicalSmbiosAccessPolicy::Reject\s*=>\s*\{\s*return Err\("surface_capture_physical_smbios_access_rejected"\);\s*\}\s*PhysicalSmbiosAccessPolicy::Allow\s*=>\s*\{\s*\}\s*\}.*capture_smbios\(smbios, memory_map, hhdm, &mut progress, &mut payloads\)\?;' "physical SMBIOS reject is not before the retained capture path"
+Require ($captureFunction -notmatch '\.slice\(') "top-level physical SMBIOS reject boundary contains a dereference"
 Require ([regex]::Matches($capture, 'pci::enumerate_functions_for_capture\(\)\?').Count -eq 1) "capture must use fail-closed PCI enumeration exactly once"
 Require ([regex]::Matches($capture, 'pci::enumerate_functions\(').Count -eq 0) "infallible PCI enumeration remains reachable"
 Require-Match $capture 'revision:\s*function\.revision' "captured PCI revision is not the accepted snapshot value"
@@ -240,11 +244,10 @@ if ($LASTEXITCODE -ne 0) { throw "unsafe inventory baseline check failed" }
 Push-Location $RepoRoot
 try {
     $expectedPaths = @(
-        "docs/architecture/unsafe-inventory-baseline-v2.json",
+        "scripts/test-surface-early-boot-checkpoints.ps1",
         "scripts/test-surface-fact-capture-kernel.ps1",
         "seed-kernel/src/main.rs",
-        "seed-kernel/src/surface_fact_capture.rs",
-        "seed-kernel/src/usb.rs"
+        "seed-kernel/src/surface_fact_capture.rs"
     ) | Sort-Object
     $statusLines = @(git status --short --untracked-files=all)
     if ($LASTEXITCODE -ne 0) { throw "git status failed" }
@@ -252,13 +255,8 @@ try {
     $pathDifference = @(Compare-Object $expectedPaths $actualPaths)
     Require ($pathDifference.Count -eq 0) "dirty file set differs from the exact five-file lane"
 
-    git diff HEAD --check -- docs/architecture/unsafe-inventory-baseline-v2.json seed-kernel/src/main.rs seed-kernel/src/usb.rs
+    git diff HEAD --check -- scripts/test-surface-early-boot-checkpoints.ps1 scripts/test-surface-fact-capture-kernel.ps1 seed-kernel/src/main.rs seed-kernel/src/surface_fact_capture.rs
     if ($LASTEXITCODE -ne 0) { throw "tracked diff whitespace check failed" }
-    foreach ($untracked in "scripts/test-surface-fact-capture-kernel.ps1", "seed-kernel/src/surface_fact_capture.rs") {
-        $noIndexOutput = @(git -c core.autocrlf=false diff --no-index --check -- NUL $untracked 2>&1)
-        $noIndexExit = $LASTEXITCODE
-        Require (($noIndexExit -in @(0, 1)) -and $noIndexOutput.Count -eq 0) "untracked diff whitespace check failed for $untracked"
-    }
 } finally { Pop-Location }
 
 Write-Output "surface fact capture kernel predicates: PASS"

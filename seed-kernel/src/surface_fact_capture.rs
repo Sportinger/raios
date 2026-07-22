@@ -32,23 +32,35 @@ pub enum CapturePhase {
     Finalize,
 }
 
+pub enum PhysicalSmbiosAccessPolicy {
+    Reject,
+    Allow,
+}
+
 /// Measures one bounded boot epoch. Failure returns no partial series, so the
 /// caller cannot reach USB persistence with malformed or incomplete facts.
 pub fn capture(
+    physical_smbios_access: PhysicalSmbiosAccessPolicy,
     smbios: Option<&SmbiosResponse>,
     memory_map: Option<&MemoryMapResponse>,
     hhdm: Option<&HhdmResponse>,
     mut progress: impl FnMut(CapturePhase),
 ) -> Result<Vec<CaptureRecord>, &'static str> {
     let nonce = crate::time::rdtsc();
-    let smbios = smbios.ok_or("surface_capture_smbios_missing")?;
-    let memory_map = memory_map.ok_or("surface_capture_memory_map_missing")?;
-    let hhdm = hhdm.ok_or("surface_capture_hhdm_missing")?;
     let mut payloads = Vec::new();
 
     progress(CapturePhase::Cpuid);
     capture_cpuid(&mut payloads)?;
     progress(CapturePhase::Smbios);
+    match physical_smbios_access {
+        PhysicalSmbiosAccessPolicy::Reject => {
+            return Err("surface_capture_physical_smbios_access_rejected");
+        }
+        PhysicalSmbiosAccessPolicy::Allow => {}
+    }
+    let smbios = smbios.ok_or("surface_capture_smbios_missing")?;
+    let memory_map = memory_map.ok_or("surface_capture_memory_map_missing")?;
+    let hhdm = hhdm.ok_or("surface_capture_hhdm_missing")?;
     capture_smbios(smbios, memory_map, hhdm, &mut progress, &mut payloads)?;
     progress(CapturePhase::MemoryMap);
     capture_memory_map(memory_map, &mut payloads)?;

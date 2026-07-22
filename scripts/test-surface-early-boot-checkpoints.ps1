@@ -132,12 +132,16 @@ function Assert-CheckpointSources(
 
     Require ([regex]::Matches($CaptureSource, '\bpub enum CapturePhase\b').Count -eq 1) "CapturePhase public enum count changed"
     Require-Match $CaptureSource 'pub enum CapturePhase\s*\{\s*Cpuid,\s*Smbios,\s*SmbiosEntryPoint,\s*SmbiosTable,\s*SmbiosParse,\s*MemoryMap,\s*Pci,\s*Finalize,\s*\}' "CapturePhase is not the exact ordered fieldless public enum"
-    Require-Match $captureFunction 'pub fn capture\(.*mut progress: impl FnMut\(CapturePhase\),\s*\)\s*->\s*Result<Vec<CaptureRecord>, &''static str>' "capture progress callback signature is missing or dynamic"
+    Require ([regex]::Matches($CaptureSource, '\bpub enum PhysicalSmbiosAccessPolicy\b').Count -eq 1) "physical SMBIOS policy public enum count changed"
+    Require-Match $CaptureSource 'pub enum PhysicalSmbiosAccessPolicy\s*\{\s*Reject,\s*Allow,\s*\}' "physical SMBIOS policy is not the exact fieldless Reject/Allow enum"
+    Require-Match $captureFunction 'pub fn capture\(\s*physical_smbios_access: PhysicalSmbiosAccessPolicy,\s*smbios: Option<&SmbiosResponse>,\s*memory_map: Option<&MemoryMapResponse>,\s*hhdm: Option<&HhdmResponse>,\s*mut progress: impl FnMut\(CapturePhase\),\s*\)\s*->\s*Result<Vec<CaptureRecord>, &''static str>' "capture policy/progress signature is missing or dynamic"
     $observedCapturePhases = @(Get-CapturePhaseCalls $captureFunction)
     Require (Test-ExactSequence $observedCapturePhases $script:ExpectedTopLevelCapturePhases) "top-level capture progress callbacks are missing, duplicated, or reordered"
     Require ([regex]::Matches($captureFunction, '\bprogress\(').Count -eq $script:ExpectedTopLevelCapturePhases.Count) "capture invokes progress outside the five top-level phase boundaries"
     Require-Match $captureFunction 'progress\(CapturePhase::Cpuid\);\s*capture_cpuid\(&mut payloads\)\?;' "CPUID progress is not immediately before CPUID capture"
-    Require-Match $captureFunction 'progress\(CapturePhase::Smbios\);\s*capture_smbios\(smbios, memory_map, hhdm, &mut progress, &mut payloads\)\?;' "SMBIOS progress is not immediately before SMBIOS capture"
+    Require-Match $captureFunction 'progress\(CapturePhase::Smbios\);\s*match physical_smbios_access\s*\{\s*PhysicalSmbiosAccessPolicy::Reject\s*=>\s*\{\s*return Err\("surface_capture_physical_smbios_access_rejected"\);\s*\}\s*PhysicalSmbiosAccessPolicy::Allow\s*=>\s*\{\s*\}\s*\}\s*let smbios = smbios\.ok_or\("surface_capture_smbios_missing"\)\?;\s*let memory_map = memory_map\.ok_or\("surface_capture_memory_map_missing"\)\?;\s*let hhdm = hhdm\.ok_or\("surface_capture_hhdm_missing"\)\?;\s*capture_smbios\(smbios, memory_map, hhdm, &mut progress, &mut payloads\)\?;' "physical SMBIOS reject is not the static SS-before-dereference boundary"
+    Require ([regex]::Matches($captureFunction, 'surface_capture_physical_smbios_access_rejected').Count -eq 1) "physical SMBIOS reject reason is missing or non-unique"
+    Require ($captureFunction -notmatch '\.slice\(') "top-level policy boundary contains a physical slice"
     Require-Match $captureFunction 'progress\(CapturePhase::MemoryMap\);\s*capture_memory_map\(memory_map, &mut payloads\)\?;' "memory-map progress is not immediately before memory-map capture"
     Require-Match $captureFunction 'progress\(CapturePhase::Pci\);\s*let functions = pci::enumerate_functions_for_capture\(\)\?;' "PCI progress is not immediately before PCI capture"
     Require-Match $captureFunction 'progress\(CapturePhase::Finalize\);\s*let capture_id = capture_id\(nonce, &payloads\);' "finalize progress is not immediately before finalization"
@@ -161,6 +165,9 @@ function Assert-CheckpointSources(
     Require ([regex]::Matches($captureMapping, '=>').Count -eq $script:ExpectedCapturePhases.Count) "main CapturePhase match contains a fallback or extra arm"
     Require-Match $captureMapping '\|phase\|\s*match phase\s*\{' "capture callback is not an exhaustive phase match"
     Require ($captureMapping -notmatch '(?i)format!|format_args!|serial::|secret|vault|reason|error|unsafe') "capture progress mapping can consume values, secrets, or errors"
+    Require-Match $captureMapping 'surface_fact_capture::capture\(\s*surface_fact_capture::PhysicalSmbiosAccessPolicy::Reject,\s*SMBIOS_REQUEST\.get_response\(\),\s*MEMORY_MAP_REQUEST\.get_response\(\),\s*HHDM_REQUEST\.get_response\(\),' "main does not select the static physical SMBIOS reject policy"
+    Require ([regex]::Matches($captureMapping, 'PhysicalSmbiosAccessPolicy::Reject').Count -eq 1) "main physical SMBIOS reject policy is missing or duplicated"
+    Require ([regex]::Matches($captureMapping, 'PhysicalSmbiosAccessPolicy::Allow').Count -eq 0) "main enables physical SMBIOS access"
 
     $observedMethods = @(Get-CheckpointCalls $earlyMain)
     Require (Test-ExactSequence $observedMethods $script:ExpectedMethods) "early_main checkpoints are missing, duplicated, or reordered"
@@ -195,6 +202,7 @@ function Assert-CheckpointSources(
     Require-Match $earlyMain 'ShellHost::new\(framebuffer_surface\);\s*status_ui\.render_early_boot_before_surface\(\);\s*let default_provider_loaded = provider_config::init_default_config\(\);\s*status_ui\.render_early_boot_after_provider_config\(\);\s*if default_provider_loaded' "EB1/EB1P do not immediately bracket provider configuration independently of its bool result"
     Require-Match $earlyMain 'console::init\(\);\s*status_ui\.render_early_boot_after_console\(\);\s*let surface_capture = surface_fact_capture::capture\(.*?\|phase\|\s*match phase\s*\{.*?\},\s*\);\s*status_ui\.render_early_boot_before_usb\(\);' "EB1C, capture phase mapping, and post-return EB2 boundary changed"
     Require-Match $earlyMain 'status_ui\.render_early_boot_before_usb\(\);.*?usb::init\(\);\s*status_ui\.render_early_boot_after_usb\(\);' "EB2 is not before USB init or EB3 is not immediate after USB return"
+    Require-Match $earlyMain 'status_ui\.render_early_boot_before_usb\(\);\s*if let Err\(reason\) = &surface_capture\s*\{.*?\}\s*usb::init\(\);' "surface capture rejection does not continue through EB2 to USB init"
     Require ([regex]::Matches($earlyMain, 'provider_config::init_default_config\(\)').Count -eq 1) "provider configuration call count changed"
     Require ([regex]::Matches($earlyMain, 'console::init\(\)').Count -eq 1) "console initialization call count changed"
     Require ([regex]::Matches($earlyMain, 'surface_fact_capture::capture\(').Count -eq 1) "Surface capture call count changed"
@@ -310,6 +318,36 @@ Write-Output "SURFACE-EARLY-BOOT-BOUNDS: PASS"
 
 # Negative boundary: mutate the complete source input and run the same source
 # contract used for the real files.
+$mainRejectToken = "surface_fact_capture::PhysicalSmbiosAccessPolicy::Reject"
+Require ([regex]::Matches($main, [regex]::Escape($mainRejectToken)).Count -eq 1) "main Reject policy token is not unique"
+$allowMain = $main.Replace(
+    $mainRejectToken,
+    "surface_fact_capture::PhysicalSmbiosAccessPolicy::Allow"
+)
+Require ($allowMain -cne $main) "Reject-to-Allow negative did not mutate the source"
+Assert-RejectedMutation $allowMain $genesis $capture "SURFACE-EARLY-BOOT-NEG-SMBIOS-POLICY-ALLOW"
+
+$rejectBoundary = @'
+    match physical_smbios_access {
+        PhysicalSmbiosAccessPolicy::Reject => {
+            return Err("surface_capture_physical_smbios_access_rejected");
+        }
+        PhysicalSmbiosAccessPolicy::Allow => {}
+    }
+'@
+$sourceNewline = if ($capture.Contains("`r`n")) { "`r`n" } else { "`n" }
+$rejectBoundary = $rejectBoundary.Replace([Environment]::NewLine, $sourceNewline)
+$captureCall = '    capture_smbios(smbios, memory_map, hhdm, &mut progress, &mut payloads)?;'
+Require ([regex]::Matches($capture, [regex]::Escape($rejectBoundary + $sourceNewline)).Count -eq 1) "early Reject boundary token is missing or non-unique"
+Require ([regex]::Matches($capture, [regex]::Escape($captureCall)).Count -eq 1) "SMBIOS capture call token is missing or non-unique"
+$lateRejectCapture = $capture.Replace($rejectBoundary + $sourceNewline, "")
+$lateRejectCapture = $lateRejectCapture.Replace(
+    $captureCall,
+    $captureCall + $sourceNewline + $rejectBoundary
+)
+Require ($lateRejectCapture -cne $capture) "late-Reject negative did not mutate the source"
+Assert-RejectedMutation $main $genesis $lateRejectCapture "SURFACE-EARLY-BOOT-NEG-SMBIOS-REJECT-AFTER-SLICE"
+
 $newCheckpointTokens = @(
     "    status_ui.render_early_boot_after_provider_config();",
     "    status_ui.render_early_boot_after_console();"
@@ -414,25 +452,30 @@ try {
         -not $_.StartsWith("---", [StringComparison]::Ordinal)
     })
     $allowedRemovedRust = @(
-        "-    capture_smbios(smbios, memory_map, hhdm, &mut payloads)?;"
+        "-    let smbios = smbios.ok_or(`"surface_capture_smbios_missing`")?;",
+        "-    let memory_map = memory_map.ok_or(`"surface_capture_memory_map_missing`")?;",
+        "-    let hhdm = hhdm.ok_or(`"surface_capture_hhdm_missing`")?;"
     )
-    Require (Test-ExactSequence $removedRust $allowedRemovedRust) "Rust removals exceed the one callback-threading replacement"
+    Require (Test-ExactSequence $removedRust $allowedRemovedRust) "Rust removals exceed the policy-boundary reorder"
     $forbiddenRust = '\bunsafe\b|\bpci::|\bwifi::|program_persistence::|structured_store|memory_store|usb::append|append_surface_fact_capture|reclog|msc_'
     Require (($addedRust -join [Environment]::NewLine) -notmatch $forbiddenRust) "Rust additions introduce unsafe, PCI, Wi-Fi, or persistence behavior"
 
-    $baselineCapture = @(git show HEAD:seed-kernel/src/surface_fact_capture.rs) -join [Environment]::NewLine
+    $baselineCapture = @(git show HEAD:seed-kernel/src/surface_fact_capture.rs) -join $sourceNewline
     if ($LASTEXITCODE -ne 0) { throw "git show baseline capture failed" }
     $baselineSmbios = Slice-Between $baselineCapture "fn capture_smbios(" "fn parse_smbios_table("
     $currentSmbios = Slice-Between $capture "fn capture_smbios(" "fn parse_smbios_table("
+    $baselineParser = Slice-Between $baselineCapture "fn parse_smbios_table(" "fn find_double_nul("
+    $currentParser = Slice-Between $capture "fn parse_smbios_table(" "fn find_double_nul("
     $baselineDangerousSlices = [regex]::Matches($baselineSmbios, '\.slice\(').Count
     $currentDangerousSlices = [regex]::Matches($currentSmbios, '\.slice\(').Count
     Require ($baselineDangerousSlices -eq 5) "baseline SMBIOS dangerous-slice model changed"
     Require ($currentDangerousSlices -eq $baselineDangerousSlices) "SMBIOS dangerous dereference count changed"
+    Require ($currentParser -ceq $baselineParser) "bounded SMBIOS parser changed"
 
     $expectedPaths = @(
         "scripts/test-surface-early-boot-checkpoints.ps1",
+        "scripts/test-surface-fact-capture-kernel.ps1",
         "seed-kernel/src/main.rs",
-        "seed-kernel/src/shell_host/genesis.rs",
         "seed-kernel/src/surface_fact_capture.rs"
     ) | Sort-Object
     $statusLines = @(git status --short --untracked-files=all)
@@ -442,7 +485,7 @@ try {
     }) | Sort-Object
     Require ((@(Compare-Object $expectedPaths $actualPaths)).Count -eq 0) "dirty file set differs from the exact four-file lane"
 
-    git diff HEAD --check -- seed-kernel/src/main.rs seed-kernel/src/shell_host/genesis.rs seed-kernel/src/surface_fact_capture.rs scripts/test-surface-early-boot-checkpoints.ps1
+    git diff HEAD --check -- seed-kernel/src/main.rs seed-kernel/src/surface_fact_capture.rs scripts/test-surface-early-boot-checkpoints.ps1 scripts/test-surface-fact-capture-kernel.ps1
     if ($LASTEXITCODE -ne 0) { throw "tracked diff whitespace check failed" }
     $selfCheck = @(git -c core.autocrlf=false diff --no-index --check -- NUL scripts/test-surface-early-boot-checkpoints.ps1 2>&1)
     $selfCheckExit = $LASTEXITCODE
