@@ -111,6 +111,26 @@ impl ShellHost {
         self.render_early_boot_checkpoint("EB1C", HAIRLINE);
     }
 
+    pub fn render_early_boot_capture_cpuid(&mut self) {
+        self.render_early_boot_checkpoint("SC", APP_BLUE);
+    }
+
+    pub fn render_early_boot_capture_smbios(&mut self) {
+        self.render_early_boot_checkpoint("SS", SURFACE_BG);
+    }
+
+    pub fn render_early_boot_capture_memory_map(&mut self) {
+        self.render_early_boot_checkpoint("SM", HAIRLINE);
+    }
+
+    pub fn render_early_boot_capture_pci(&mut self) {
+        self.render_early_boot_checkpoint("SP", APP_AMBER);
+    }
+
+    pub fn render_early_boot_capture_finalize(&mut self) {
+        self.render_early_boot_checkpoint("SV", APP_GREEN);
+    }
+
     pub fn render_early_boot_before_usb(&mut self) {
         self.render_early_boot_checkpoint("EB2", APP_AMBER);
     }

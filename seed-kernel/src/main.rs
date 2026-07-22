@@ -265,6 +265,23 @@ fn early_main() -> ! {
         SMBIOS_REQUEST.get_response(),
         MEMORY_MAP_REQUEST.get_response(),
         HHDM_REQUEST.get_response(),
+        |phase| match phase {
+            surface_fact_capture::CapturePhase::Cpuid => {
+                status_ui.render_early_boot_capture_cpuid();
+            }
+            surface_fact_capture::CapturePhase::Smbios => {
+                status_ui.render_early_boot_capture_smbios();
+            }
+            surface_fact_capture::CapturePhase::MemoryMap => {
+                status_ui.render_early_boot_capture_memory_map();
+            }
+            surface_fact_capture::CapturePhase::Pci => {
+                status_ui.render_early_boot_capture_pci();
+            }
+            surface_fact_capture::CapturePhase::Finalize => {
+                status_ui.render_early_boot_capture_finalize();
+            }
+        },
     );
     status_ui.render_early_boot_before_usb();
     if let Err(reason) = &surface_capture {

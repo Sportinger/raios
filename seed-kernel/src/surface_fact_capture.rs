@@ -21,12 +21,21 @@ const SMBIOS_ENTRY_MAX_LEN: usize = 256;
 const SMBIOS_SLICE_MAX_LEN: usize = 1024 * 1024;
 const CPUID_LEAF7_MAX_SUBLEAF: u32 = 32;
 
+pub enum CapturePhase {
+    Cpuid,
+    Smbios,
+    MemoryMap,
+    Pci,
+    Finalize,
+}
+
 /// Measures one bounded boot epoch. Failure returns no partial series, so the
 /// caller cannot reach USB persistence with malformed or incomplete facts.
 pub fn capture(
     smbios: Option<&SmbiosResponse>,
     memory_map: Option<&MemoryMapResponse>,
     hhdm: Option<&HhdmResponse>,
+    mut progress: impl FnMut(CapturePhase),
 ) -> Result<Vec<CaptureRecord>, &'static str> {
     let nonce = crate::time::rdtsc();
     let smbios = smbios.ok_or("surface_capture_smbios_missing")?;
@@ -34,12 +43,16 @@ pub fn capture(
     let hhdm = hhdm.ok_or("surface_capture_hhdm_missing")?;
     let mut payloads = Vec::new();
 
+    progress(CapturePhase::Cpuid);
     capture_cpuid(&mut payloads)?;
+    progress(CapturePhase::Smbios);
     capture_smbios(smbios, memory_map, hhdm, &mut payloads)?;
+    progress(CapturePhase::MemoryMap);
     capture_memory_map(memory_map, &mut payloads)?;
 
     // This is the sole whole-bus enumeration for this boot capture. BAR sizing
     // completes before USB or any later PCI driver can reuse the functions.
+    progress(CapturePhase::Pci);
     let functions = pci::enumerate_functions_for_capture()?;
     for function in functions {
         let mut bars = [PciBarFact::EMPTY; 6];
@@ -83,6 +96,7 @@ pub fn capture(
         )?;
     }
 
+    progress(CapturePhase::Finalize);
     let capture_id = capture_id(nonce, &payloads);
     let part_count = payloads
         .len()
