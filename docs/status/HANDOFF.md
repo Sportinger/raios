@@ -3,7 +3,7 @@
 > Window, not log: one Now, one Next step, three Recently entries. Replace on
 > update; never append. Keep under 60 lines and roughly 2 KB.
 
-## Now (2026-07-22, Surface capture-stage USB being prepared)
+## Now (2026-07-22, Surface capture-stage USB ready)
 
 Canonical `main` is `C:\Users\admin\Documents\raios2-main` at pushed
 `f3850bb`. The detached old root `C:\Users\admin\Documents\raios2` remains
@@ -26,12 +26,17 @@ The exact-order predicate and missing/reorder mutations pass, the freestanding
 release build passes, and a fresh independent read-only review reports ACCEPT.
 Capture work and ordering are otherwise unchanged.
 
+The firmware-bearing payload uses kernel SHA-256
+`dfc4d63acb637ec3f735c1b6084fc834d1f12411587ee97f924f50d9baf2b1ef`;
+Core Policy A/generation 1 and the Marvell firmware verified. The image was
+written to the revalidated SanDisk USB disk 1. Physical post-write inspection
+confirmed GPT with exact ESP A, ESP B and SEED_DATA partition sizes.
+
 ## Next step
 
-Package `f3850bb` with the required Marvell firmware and Core Policy A,
-revalidate and write only the known SanDisk USB disk 1, then cold-boot once.
-Record the last visible code among SC/SS/SM/SP/SV/EB2, power off, and return the
-stick for read-only extraction; do not repeat the boot before extraction.
+Cold-boot the prepared USB once. Record the last visible code among
+SC/SS/SM/SP/SV/EB2, power off, and return the stick for read-only extraction;
+do not repeat the boot before extraction.
 
 ## Recently (exactly 3, newest first)
 
