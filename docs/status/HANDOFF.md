@@ -3,49 +3,44 @@
 > Window, not log: one Now, one Next step, three Recently entries. Replace on
 > update; never append. Keep under 60 lines and roughly 2 KB.
 
-## Now (2026-07-22, Genesis-unblock USB ready)
+## Now (2026-07-22, H26 codec secured)
 
 Canonical `main` is `C:\Users\admin\Documents\raios2-main` at pushed
-`b18f272`. The detached old root `C:\Users\admin\Documents\raios2` remains
+`1546fcf`. The detached old root `C:\Users\admin\Documents\raios2` remains
 foreign WIP; never clean, reset, merge, or integrate it. Worktree is clean.
 
-The `ec1aea1` hardware run stayed visibly at yellow SI. This proves CPUID and
-the SS checkpoint completed, then the first physical SMBIOS entry-point slice
-faulted before ST/SR/MemoryMap/PCI/USB. Repeated earlier returned sticks had
-zero-tail RECLOG because USB was never reached; another empty extraction was
-not useful for this deterministic pre-USB fault.
+The `b18f272` Surface USB restored Genesis, HID and the WLAN UI. Scan and
+passphrase entry reached the designed H25 terminal dialog `reboot_required`.
+Returned-stick extraction found six valid RECLOG frames, clean zero tail and
+USB `errors=0`. The post-PMK GET_HW_SPEC canary completed in the current epoch;
+network stayed denied and cold reboot required exactly as H25 specifies. This
+rules out a bad password and proves generic post-PMK mailbox liveness.
 
-`b18f272` adds fieldless `PhysicalSmbiosAccessPolicy::{Reject, Allow}` and makes
-the normal boot select Reject. After SS, capture returns the static error before
-SI, Limine option access, `capture_smbios` or any physical slice. The entire
-capture is discarded; main then retains its existing EB2 -> `usb::init` -> EB3
--> EB4F route and continues toward Genesis/WLAN. No partial facts can append;
-the bounded Allow implementation remains unchanged for future explicit use.
-
-Reject-to-Allow and late-Reject source mutations, early-boot and capture
-predicates, freestanding release build, `git diff --check`, unsafe inventory,
-and fresh independent read-only review are green; review verdict is ACCEPT.
-
-The firmware-bearing payload uses kernel SHA-256
-`803e4c0df649cfc3435358b9db440a4ee2996308c26ede05cc9a30f6d6bf0f6c`;
-Core Policy A/generation 1 and Marvell firmware verified. It was written to the
-revalidated SanDisk disk 1; physical GPT ESP A/B and SEED_DATA sizes verified.
+`1546fcf` secures the hardware-independent H26 protocol slice. Legacy scan
+responses now require one unambiguous TSF TLV with one firmware TSF per BSS.
+The source-compatible `build_associate_24ghz_with_tsf` emits `0x0113`, length
+16, firmware TSF and AP beacon timestamp. The H25 callsite stays unchanged.
+All 37 focused tests, negatives, diff checks and independent review are green
+(`ACCEPT`); the stable host check reached the callsite with `E0063=0`.
 
 ## Next step
 
-Cold-boot this USB once. Expected transient codes are SS, EB2, EB3 and EB4F,
-then normal Genesis/WLAN UI. Report the final screen or last persistent code.
-If Genesis appears, continue directly with Wi-Fi connect and agent test.
+H26 kernel wiring must retain both timestamps, restore PMK -> Associate and use
+the TSF builder. ADR 0027 forbids this Surface hardware lane while
+`surface-pro-4.v1.json` lacks required observed CPU/memory facts. Owner must
+authorize an explicit exception ADR for this device/test or supply a valid
+observed manifest; until then no H26 stick image is authorized.
 
 ## Recently (exactly 3, newest first)
 
+### 2026-07-22 - Compatible H26 TSF codec secured
+`1546fcf`: scan TSF parsing plus explicit Associate TSF builder; 37 tests and
+independent ACCEPT green, legacy kernel callsite remains source-compatible.
+
+### 2026-07-22 - H25 reached its designed terminal state
+Genesis/WLAN returned; canary completed, USB stayed clean, and network grant
+was intentionally denied with reboot required.
+
 ### 2026-07-22 - Unsafe SMBIOS access rejected during boot
-`b18f272`: fail-closed boot policy, mutation predicates, release build and
-independent ACCEPT are green; physical USB layout verified.
-
-### 2026-07-22 - Hardware run stayed at SI
-The first physical SMBIOS entry-point slice is the deterministic pre-USB fault.
-
-### 2026-07-22 - SMBIOS access stages accepted
-`ec1aea1`: SI/ST/SR instrumentation, release build and independent ACCEPT were
-green and provided the decisive hardware boundary.
+`b18f272`: fail-closed capture policy bypassed the deterministic SI fault and
+restored the EB2 -> USB -> Genesis path.
