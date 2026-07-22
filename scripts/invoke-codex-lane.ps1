@@ -20,6 +20,7 @@ $ReservedMachineContextToken = "raios-machine-context"
 $Adr0045ExceptionToken = "ADR-0045-H26"
 $Adr0045R2ExceptionToken = "ADR-0045-H26-R2"
 $Adr0045R3ExceptionToken = "ADR-0045-H26-R3"
+$Adr0045R3RecoveryToken = "ADR-0045-H26-R3-DISPATCH-RECOVERY-1"
 $Adr0045MachineId = "surface-pro-4"
 $Adr0045ManifestSha256 = "08c8d977f48f5a846edecaf31cc4d205291105dc5c821960df21621e17b36189"
 $Adr0045FactPath = "/devices/2/identity"
@@ -31,9 +32,20 @@ $Adr0045DecisionRelativePath = "docs/architecture/decisions/0045-authorize-one-h
 $Adr0045DecisionSha256 = "a190c50925cb3e15659384146529851e1d2ca26b7692584dd16f46effc439061"
 $Adr0045R2DecisionSha256 = "71c6eb3b177738b3b8a338d699b2b1e0a277323926d7c0c8d857b31187f37e84"
 $Adr0045R3DecisionSha256 = "3f3b0c42b7d1f48fc19381bf5a2d0eb9ca0857c0c94cde7a77e8674658e0506e"
+$Adr0045R3RecoveryDecisionSha256 = "d1ab00cc939c307b1e763a4afd868cf34de9c740300b24f0c532bf90292bba8b"
 $Adr0045ClaimRelativePath = "target\state\adr0045-h26.claim"
 $Adr0045R2ClaimRelativePath = "target\state\adr0045-h26-r2.claim"
 $Adr0045R3ClaimRelativePath = "target\state\adr0045-h26-r3.claim"
+$Adr0045R3RecoveryClaimRelativePath = "target\state\adr0045-h26-r3-dispatch-recovery-1.claim"
+$Adr0045R3RecoveryOrderSha256 = "0ef25b8ce5fdefe15790ec83ff7803c3597b4f9933008fc27674367f18172585"
+$Adr0045R3FailureLogSha256 = "4d8bf26aecef9ff08ef78485691f81909a6b03dd762cb8510492c26bb083e7c8"
+$Adr0045R3ClaimSha256 = "b32ef3b8e56f3eba19e846160cf84ffe7c014b6933126d8e766c7d1c03bcf11d"
+$Adr0045R3RecoveryLauncherCommit = "4c77bdaf03a42ab0e543ca389e1310d7bcf5baf2"
+$Adr0045R3RecoveryLauncherSha256 = "2124404d8a7616767d87f1260b8f5fe61d6afb6c73419022567337e483ad700d"
+$Adr0045R3RecoveryShimPath = "C:\Users\admin\AppData\Roaming\npm\codex.ps1"
+$Adr0045R3RecoveryShimSha256 = "0c149db80ed0bf442c810146b0ad0163b74982fe4542d673f56c354d7b8229cb"
+$Adr0045R3RecoveryHostPath = "C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"
+$Adr0045R3RecoveryHostSha256 = "7600ffe12da441fe89d035b13801e8e91d064bc544a27b19a5cf49f6ab8b18f5"
 . (Join-Path $PSScriptRoot "check-hardware-manifests.ps1")
 
 function Throw-LaneGateDenial {
@@ -143,15 +155,21 @@ function Resolve-CodexChildStartPlan {
     if ([IO.Path]::GetExtension($hostPath).ToLowerInvariant() -cne ".exe" -or -not [IO.File]::Exists($hostPath)) {
         Throw-LaneGateDenial "codex_powershell_host_missing" "Native PowerShell host for the Codex shim is unavailable" $hostPath
     }
-    $payloadJson = [ordered]@{ script_path = $commandPath; arguments = [string[]]@($ChildArguments) } | ConvertTo-Json -Compress
+    try { [byte[]]$scriptBytes = [IO.File]::ReadAllBytes($commandPath) }
+    catch { Throw-LaneGateDenial "codex_command_read_failed" "PowerShell Codex shim could not be snapshotted" $_.Exception.Message }
+    $scriptSha256 = Get-Sha256Hex $scriptBytes
+    $scriptBase64 = [Convert]::ToBase64String($scriptBytes)
+    $scriptDirectoryBase64 = [Convert]::ToBase64String((New-Object Text.UTF8Encoding($false)).GetBytes((Split-Path -Parent $commandPath)))
+    $payloadJson = [ordered]@{ script_path = $commandPath; script_sha256 = $scriptSha256; script_base64 = $scriptBase64; script_directory_base64 = $scriptDirectoryBase64; arguments = [string[]]@($ChildArguments) } | ConvertTo-Json -Compress
     $payloadBase64 = [Convert]::ToBase64String((New-Object Text.UTF8Encoding($false)).GetBytes($payloadJson))
-    $bootstrap = '$json=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String("' + $payloadBase64 + '"));$data=$json|ConvertFrom-Json;$argv=[string[]]$data.arguments;$raw=[Console]::In.ReadToEnd();if(-not $raw.EndsWith("`r`n")){exit 125};$raw.Substring(0,$raw.Length-2)|& ([string]$data.script_path) @argv;exit $LASTEXITCODE'
+    $bootstrap = '$utf8=New-Object Text.UTF8Encoding($false);[Console]::InputEncoding=$utf8;[Console]::OutputEncoding=$utf8;$OutputEncoding=$utf8;$json=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String("' + $payloadBase64 + '"));$data=$json|ConvertFrom-Json;$argv=[string[]]$data.arguments;$script=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String([string]$data.script_base64));$dir64=[string]$data.script_directory_base64;$needle=''$basedir=Split-Path $MyInvocation.MyCommand.Definition -Parent'';$replacement=''$basedir=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String("''+$dir64+''"))'';$script=$script.Replace($needle,$replacement);$block=[ScriptBlock]::Create($script);$raw=[Console]::In.ReadToEnd();if(-not $raw.EndsWith("`r`n")){exit 125};$raw.Substring(0,$raw.Length-2)|& $block @argv;exit $LASTEXITCODE'
     $encodedCommand = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($bootstrap))
     return [pscustomobject]@{
         file_name = $hostPath
         arguments = [string[]]@("-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", $encodedCommand)
         command_type = [string]$resolved.CommandType
         command_path = $commandPath
+        command_sha256 = $scriptSha256
     }
 }
 
@@ -208,7 +226,17 @@ function Get-Adr0045ExceptionBinding {
             claim_schema = "raios.adr0045_h26_r3_claim.v1"
         }
     }
-    Throw-LaneGateDenial "governance_exception_invalid" "GovernanceException must be empty, exactly '$Adr0045ExceptionToken', exactly '$Adr0045R2ExceptionToken', or exactly '$Adr0045R3ExceptionToken'" $Token
+    if ($Token -ceq $Adr0045R3RecoveryToken) {
+        return [pscustomobject]@{
+            token = $Adr0045R3RecoveryToken
+            order_marker = $Adr0045R3OrderMarker
+            decision_sha256 = $Adr0045R3RecoveryDecisionSha256
+            claim_relative_path = $Adr0045R3RecoveryClaimRelativePath
+            claim_schema = "raios.adr0045_h26_r3_dispatch_recovery_1_claim.v1"
+            is_recovery = $true
+        }
+    }
+    Throw-LaneGateDenial "governance_exception_invalid" "GovernanceException is not an exact authorized ADR-0045 token" $Token
 }
 
 function Open-Adr0045AuthorityLease {
@@ -248,8 +276,98 @@ function Open-Adr0045AuthorityLease {
     return [pscustomobject]@{ path = $Path; stream = $stream; buffer = $buffer; count = $bytesRead; digest = $digest }
 }
 
+function Open-ExactRecoveryEvidenceLease {
+    param([string]$Path, [string]$ExpectedDigest, [string]$Label, [int64]$MaxBytes = 8388608)
+    $fullPath = if ([IO.Path]::IsPathRooted($Path)) { [IO.Path]::GetFullPath($Path) } else { [IO.Path]::GetFullPath((Join-Path $LauncherRepoRoot $Path)) }
+    $stream = $null
+    try {
+        $stream = [IO.FileStream]::new($fullPath, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read, 4096, [IO.FileOptions]::SequentialScan)
+        if ($stream.Length -gt $MaxBytes) { throw "$Label exceeds its evidence bound" }
+        [byte[]]$bytes = [byte[]]::new([int]$stream.Length)
+        $offset = 0
+        while ($offset -lt $bytes.Length) {
+            $read = $stream.Read($bytes, $offset, $bytes.Length - $offset)
+            if ($read -le 0) { throw "$Label ended before its leased length" }
+            $offset += $read
+        }
+        $digest = Get-Sha256Hex $bytes
+        if ($digest -cne $ExpectedDigest) { throw "$Label digest mismatch: expected=$ExpectedDigest actual=$digest" }
+        return [pscustomobject]@{ path = $fullPath; stream = $stream; bytes = $bytes; digest = $digest }
+    } catch {
+        if ($null -ne $stream) { $stream.Dispose() }
+        Throw-LaneGateDenial "governance_recovery_evidence_mismatch" "H26 R3 dispatch-recovery evidence is unavailable or changed" $_.Exception.Message
+    }
+}
+
+function Open-Adr0045R3RecoveryEvidence {
+    param([string]$OrderFullPath, [string]$InitialOrderSha256, [object]$StartPlan, [string]$Prompt)
+    $expectedOrderPath = [IO.Path]::GetFullPath((Join-Path $LauncherRepoRoot "target\lanes\h26-r3-race-repair-order.md"))
+    if (-not [string]::Equals($OrderFullPath, $expectedOrderPath, [StringComparison]::OrdinalIgnoreCase)) {
+        Throw-LaneGateDenial "governance_recovery_order_path_mismatch" "H26 R3 recovery requires the original order path" $OrderFullPath
+    }
+    if ($InitialOrderSha256 -cne $Adr0045R3RecoveryOrderSha256) {
+        Throw-LaneGateDenial "governance_recovery_order_digest_mismatch" "The prompt source is not the exact authorized R3 order" ([ordered]@{ expected = $Adr0045R3RecoveryOrderSha256; actual = $InitialOrderSha256 })
+    }
+    if (-not [string]::Equals([string]$StartPlan.command_path, $Adr0045R3RecoveryShimPath, [StringComparison]::OrdinalIgnoreCase) -or
+        -not [string]::Equals([string]$StartPlan.file_name, $Adr0045R3RecoveryHostPath, [StringComparison]::OrdinalIgnoreCase)) {
+        Throw-LaneGateDenial "governance_recovery_start_plan_mismatch" "H26 R3 recovery requires the pinned Windows shim and native host" ([ordered]@{ shim = $StartPlan.command_path; host = $StartPlan.file_name })
+    }
+    if ([string]$StartPlan.command_sha256 -cne $Adr0045R3RecoveryShimSha256) {
+        Throw-LaneGateDenial "governance_recovery_start_plan_mismatch" "The snapshotted Codex shim does not match its pinned bytes" $StartPlan.command_sha256
+    }
+    try {
+        $gitPath = (Get-Command git.exe -ErrorAction Stop).Source
+        $gitInfo = New-Object Diagnostics.ProcessStartInfo
+        $gitInfo.FileName = $gitPath
+        $gitInfo.Arguments = "cat-file blob $($Adr0045R3RecoveryLauncherCommit):scripts/invoke-codex-lane.ps1"
+        $gitInfo.WorkingDirectory = $LauncherRepoRoot
+        $gitInfo.UseShellExecute = $false; $gitInfo.RedirectStandardOutput = $true; $gitInfo.RedirectStandardError = $true
+        $gitProcess = New-Object Diagnostics.Process; $gitProcess.StartInfo = $gitInfo
+        if (-not $gitProcess.Start()) { throw "git cat-file did not start" }
+        $memory = New-Object IO.MemoryStream
+        $gitProcess.StandardOutput.BaseStream.CopyTo($memory)
+        $gitError = $gitProcess.StandardError.ReadToEnd(); $gitProcess.WaitForExit()
+        if ($gitProcess.ExitCode -ne 0) { throw "git cat-file failed: $gitError" }
+        $launcherBlobSha256 = Get-Sha256Hex $memory.ToArray()
+        $memory.Dispose(); $gitProcess.Dispose()
+        if ($launcherBlobSha256 -cne $Adr0045R3RecoveryLauncherSha256) { throw "Pinned launcher blob digest mismatch: $launcherBlobSha256" }
+    } catch {
+        Throw-LaneGateDenial "governance_recovery_launcher_mismatch" "The reviewed launcher commit/file binding is unavailable or changed" $_.Exception.Message
+    }
+    $specs = @(
+        @("target\state\adr0045-h26.claim", "01f1049bca67c2581eecb1045902391dd8c61958ad41f1eac1941d3d54e8e904", "R1 claim"),
+        @("target\state\adr0045-h26-r2.claim", "c614af70542f785d375e9936ca41bf7d1eadbcce070733a04a7355819623fb6a", "R2 claim"),
+        @("target\state\adr0045-h26-r3.claim", $Adr0045R3ClaimSha256, "R3 claim"),
+        @("target\lanes\h26-r3-race-repair.stdout.log", $Adr0045R3FailureLogSha256, "pre-child failure record"),
+        @("target\lanes\h26-r3-race-repair-order.md", $Adr0045R3RecoveryOrderSha256, "R3 order"),
+        @("seed-kernel\src\wifi.rs", "690aa68efaa835fa1df59cfd7316472828e438976e68238e021b6b9c0496f91e", "wifi.rs"),
+        @("seed-kernel\src\marvell_wifi_pcie.rs", "d53f1eeedd66fe529d2ad55ab6f821e731135971b17c4b6f584f1105c68c5595", "marvell_wifi_pcie.rs"),
+        @("scripts\test-marvell-connection-telemetry.ps1", "fddb8474d46d53b802a5e93b9780b4343a305400c20bdf5026d380608174c31f", "connection predicate"),
+        @("scripts\test-wifi-ephemeral-physical.ps1", "f9e818260b369f17b984af06ba86cc795adca14415228265609eddcea228ac65", "ephemeral predicate"),
+        @($Adr0045R3RecoveryShimPath, $Adr0045R3RecoveryShimSha256, "codex.ps1"),
+        @($Adr0045R3RecoveryHostPath, $Adr0045R3RecoveryHostSha256, "powershell.exe")
+    )
+    $leases = New-Object System.Collections.Generic.List[object]
+    try {
+        foreach ($spec in $specs) { $leases.Add((Open-ExactRecoveryEvidenceLease $spec[0] $spec[1] $spec[2])) }
+        $failureLease = $leases[3]
+        $failure = (New-Object Text.UTF8Encoding($false, $true)).GetString($failureLease.bytes) | ConvertFrom-Json
+        if ($failure.accepted -ne $false -or $failure.child_started -ne $false -or $failure.reason -cne "codex_child_start_failed") {
+            throw "Failure record does not prove accepted=false, child_started=false, codex_child_start_failed"
+        }
+        $promptSha256 = Get-Sha256Hex ((New-Object Text.UTF8Encoding($false)).GetBytes($Prompt))
+        $planJson = [ordered]@{ host = $Adr0045R3RecoveryHostPath; host_sha256 = $Adr0045R3RecoveryHostSha256; shim = $Adr0045R3RecoveryShimPath; shim_sha256 = $Adr0045R3RecoveryShimSha256; arguments = [string[]]@($StartPlan.arguments); stdin_sha256 = $promptSha256 } | ConvertTo-Json -Compress
+        $planSha256 = Get-Sha256Hex ((New-Object Text.UTF8Encoding($false)).GetBytes($planJson))
+        return [pscustomobject]@{ leases = $leases; prompt_sha256 = $promptSha256; start_plan_sha256 = $planSha256 }
+    } catch {
+        foreach ($lease in $leases) { try { $lease.stream.Dispose() } catch {} }
+        if ($_.Exception.Data["reason"]) { throw }
+        Throw-LaneGateDenial "governance_recovery_evidence_mismatch" "H26 R3 recovery evidence content is invalid" $_.Exception.Message
+    }
+}
+
 function New-Adr0045OneShotClaim {
-    param([string]$Path, [object]$Binding, [string]$MachineId, [string]$ManifestDigest, [string]$FactPath, [string]$DecisionDigest)
+    param([string]$Path, [object]$Binding, [string]$MachineId, [string]$ManifestDigest, [string]$FactPath, [string]$DecisionDigest, [AllowNull()][object]$RecoveryEvidence = $null)
     $claimFullPath = Get-AbsolutePath $Path
     $claimParent = Split-Path -Parent $claimFullPath
     try { $null = [IO.Directory]::CreateDirectory($claimParent) }
@@ -262,6 +380,21 @@ function New-Adr0045OneShotClaim {
         manifest_sha256 = $ManifestDigest
         fact_path = $FactPath
         adr_sha256 = $DecisionDigest
+    }
+    if ($null -ne $RecoveryEvidence) {
+        $binding["r1_claim_sha256"] = "01f1049bca67c2581eecb1045902391dd8c61958ad41f1eac1941d3d54e8e904"
+        $binding["r2_claim_sha256"] = "c614af70542f785d375e9936ca41bf7d1eadbcce070733a04a7355819623fb6a"
+        $binding["recovered_claim_sha256"] = $Adr0045R3ClaimSha256
+        $binding["failure_log_sha256"] = $Adr0045R3FailureLogSha256
+        $binding["order_sha256"] = $Adr0045R3RecoveryOrderSha256
+        $binding["launcher_commit"] = $Adr0045R3RecoveryLauncherCommit
+        $binding["launcher_sha256"] = $Adr0045R3RecoveryLauncherSha256
+        $binding["wifi_rs_sha256"] = "690aa68efaa835fa1df59cfd7316472828e438976e68238e021b6b9c0496f91e"
+        $binding["marvell_wifi_pcie_rs_sha256"] = "d53f1eeedd66fe529d2ad55ab6f821e731135971b17c4b6f584f1105c68c5595"
+        $binding["connection_predicate_sha256"] = "fddb8474d46d53b802a5e93b9780b4343a305400c20bdf5026d380608174c31f"
+        $binding["ephemeral_predicate_sha256"] = "f9e818260b369f17b984af06ba86cc795adca14415228265609eddcea228ac65"
+        $binding["start_plan_sha256"] = $RecoveryEvidence.start_plan_sha256
+        $binding["stdin_sha256"] = $RecoveryEvidence.prompt_sha256
     }
     $bindingBytes = (New-Object Text.UTF8Encoding($false)).GetBytes(($binding | ConvertTo-Json -Depth 10 -Compress))
     $claimStream = $null
@@ -355,6 +488,7 @@ function Invoke-CodexLaneGate {
     if ($reportFullPath -eq $orderFullPath -or $reportFullPath -eq $manifestFullPath) { Throw-LaneGateDenial "report_path_conflict" "ReportPath cannot overwrite an input" }
 
     $orderRead = Read-BoundedFileBytes $orderFullPath $LaneOrderMaxBytes "lane_order_too_large" "order_read_failed" "Lane order" $ReaderFactory
+    $initialOrderSha256 = Get-Sha256Hex $orderRead.buffer $orderRead.count
     $orderText = Read-Utf8Text $orderRead.buffer $orderRead.count "order_utf8_invalid" "Lane order"
     if ([string]::IsNullOrWhiteSpace($orderText)) { Throw-LaneGateDenial "lane_order_empty" "Lane order is empty" }
     if ($orderText.IndexOf($ReservedMachineContextToken, [StringComparison]::OrdinalIgnoreCase) -ge 0) {
@@ -372,7 +506,7 @@ function Invoke-CodexLaneGate {
     if (-not $validation.valid) { Throw-LaneGateDenial "manifest_schema_invalid" "Machine manifest failed structural or semantic validation" $validation.errors }
     if ($validation.machine_id -cne $MachineId) { Throw-LaneGateDenial "machine_id_mismatch" "Manifest machine '$($validation.machine_id)' does not match expected '$MachineId'" }
     if ($actualDigest -cne $Digest.ToLowerInvariant()) { Throw-LaneGateDenial "manifest_digest_mismatch" "Manifest SHA-256 does not match the lane order" ([ordered]@{ expected = $Digest.ToLowerInvariant(); actual = $actualDigest }) }
-    $adrLease = $null; $claimLease = $null; $process = $null; $processStarted = $false
+    $adrLease = $null; $claimLease = $null; $recoveryEvidence = $null; $process = $null; $processStarted = $false
     try {
         if ($useAdr0045Exception) {
             $adrLease = Assert-Adr0045GovernanceException $orderText $MachineId $actualDigest $FactPaths $SandboxName $exceptionBinding $Adr0045DecisionPathOverride
@@ -427,6 +561,10 @@ function Invoke-CodexLaneGate {
         $process = New-Object Diagnostics.Process
         $process.StartInfo = $startInfo
 
+        if ($useAdr0045Exception -and $exceptionBinding.is_recovery -eq $true) {
+            $recoveryEvidence = Open-Adr0045R3RecoveryEvidence $orderFullPath $initialOrderSha256 $startPlan $prompt
+        }
+
         $startFailureMessage = if ($useAdr0045Exception) {
             "Codex child process could not be started; ADR-0045 claim remains consumed"
         } else { "Codex child process could not be started" }
@@ -453,7 +591,7 @@ function Invoke-CodexLaneGate {
                 try { $null = & $Adr0045PreStartHook $hookState }
                 catch { Throw-LaneGateDenial "governance_exception_prestart_hook_failed" "ADR-0045 selftest pre-start hook failed" $_.Exception.Message }
             }
-            $claimLease = New-Adr0045OneShotClaim $claimFullPath $exceptionBinding $MachineId $actualDigest $FactPaths[0] $adrLease.digest
+            $claimLease = New-Adr0045OneShotClaim $claimFullPath $exceptionBinding $MachineId $actualDigest $FactPaths[0] $adrLease.digest $recoveryEvidence
         }
 
         # Nothing that can widen or revalidate authority occurs between the
@@ -486,6 +624,10 @@ function Invoke-CodexLaneGate {
                 try {
                     if ($SimulateStdinCloseFailure) { throw [IO.IOException]::new("Simulated stdin close failure after child start") }
                     $process.StandardInput.Close()
+                    if ($null -ne $recoveryEvidence) {
+                        foreach ($lease in $recoveryEvidence.leases) { $lease.stream.Dispose() }
+                        $recoveryEvidence = $null
+                    }
                 }
                 catch { $postStartReason = "codex_child_stdin_close_failed"; $postStartMessage = "Codex child stdin close failed after process start"; $postStartCause = $_.Exception.Message }
             }
@@ -522,6 +664,9 @@ function Invoke-CodexLaneGate {
             if ($null -ne $process -and -not $processStarted) { $process.Dispose() }
         } finally {
             try {
+                if ($null -ne $recoveryEvidence) {
+                    foreach ($lease in $recoveryEvidence.leases) { try { $lease.stream.Dispose() } catch {} }
+                }
                 if ($null -ne $claimLease) { $claimLease.stream.Dispose() }
             } finally {
                 if ($null -ne $adrLease) { $adrLease.stream.Dispose() }

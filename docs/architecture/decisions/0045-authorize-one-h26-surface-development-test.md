@@ -196,7 +196,8 @@ Vor Claim-Erzeugung gelten in dieser Reihenfolge folgende harte Gates:
    Korrektur als auch die nachfolgende Windows-Regression akzeptiert haben.
    Für diese Recovery sind das ausschließlich Commit
    `4c77bdaf03a42ab0e543ca389e1310d7bcf5baf2` und Launcher-Datei-SHA-256
-   `62c2841079702c544b0459082262e3b6be28bc7b5cb0027f55d3017adc539554`.
+   `2124404d8a7616767d87f1260b8f5fe61d6afb6c73419022567337e483ad700d`
+   (SHA-256 der Git-Blob-Bytes dieses Pfads in genau diesem Commit).
 2. Ein produktionsnaher Windows-Test durchläuft denselben Resolver und
    Startpfad mit einem `.ps1`-Shim. Er beweist native Host-Auflösung,
    `UseShellExecute=false`, exakte Argumente und exakte stdin-Bytes bei genau
