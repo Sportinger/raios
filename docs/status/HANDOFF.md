@@ -3,46 +3,43 @@
 > Window, not log: one Now, one Next step, three Recently entries. Replace on
 > update; never append. Keep under 60 lines and roughly 2 KB.
 
-## Now (2026-07-22, Surface early-boot checkpoint slice blocked)
+## Now (2026-07-22, Surface checkpoint image ready to package)
 
 Canonical `main` is `C:\Users\admin\Documents\raios2-main` at pushed
-`8b6974d`. The detached old root `C:\Users\admin\Documents\raios2` remains
-foreign WIP; never clean, reset, merge, or integrate it.
+`f84c224`. The detached old root `C:\Users\admin\Documents\raios2` remains
+foreign WIP; never clean, reset, merge, or integrate it. Worktree is clean.
 
-The reviewed capture image was written to USB SanDisk disk 1 and cold-booted
-once on the Surface. After the raiOS/Limine loader the display stayed black.
-Read-only extraction proved the GPT and SEED_DATA valid but found RECLOG
-`valid_frame_count=0`, `tail_status=zero_tail`, no USB diagnostics and no
-Surface Fact candidate. The kernel did not reach the first durable capture.
+The first Surface capture boot showed the raiOS/Limine loader and then a black
+display. Read-only extraction proved the USB GPT and SEED_DATA valid but found
+RECLOG `valid_frame_count=0`, `tail_status=zero_tail`, no USB diagnostics and
+no Surface Fact candidate. The kernel did not reach its first durable append.
 
-K4 added framebuffer checkpoints in exactly three dirty files:
-`seed-kernel/src/main.rs`, `seed-kernel/src/shell_host/genesis.rs`, and
-`scripts/test-surface-early-boot-checkpoints.ps1`. Bounds/missing/duplicate/
-reorder predicates and an orchestrator freestanding release build pass. Two
-read-only reviews rejected successive semantics: append failure was not yet
-distinct from append success. Two correction strategies then failed before
-editing because the nested Windows workspace sandbox refused the patch path.
-Per the stuck rule K4 is BLOCKED; this dirty set belongs only to the stopped K4
-lane and is not accepted, staged, packaged, or pushed.
+K4 is accepted and pushed. It draws bounded static framebuffer checkpoints:
+EB1 before Surface measurement, EB2 immediately before `usb::init`, EB3 after
+USB, EB4P only after successful capture append, EB4E only after append error,
+and EB4F only after measurement error. Small framebuffers retain distinct
+color fallbacks. Predicate bounds plus missing/duplicate/reorder/err-collapsed
+source mutations pass, the freestanding release build passes, and a fresh
+independent read-only review reports no findings and `VERDICT: ACCEPT`.
 
 ## Next step
 
-Owner/orchestrator must restore a functioning workspace-write patch path for a
-Codex worker or explicitly choose a new diagnostic strategy. Then make the
-three static outcomes exclusive (`EB4P` append success, `EB4E` append error,
-`EB4F` measurement error), rerun the predicate/release build, obtain a fresh
-read-only ACCEPT, and only then package another Surface stick.
+Package a new firmware-bearing persistent GPT image from `f84c224`, verify
+Core Policy/kernel binding and GPT/SEED_DATA, then write it to the already
+identified SanDisk USB disk only after revalidating model, serial, bus and
+non-boot/non-system posture. Cold-boot Surface once and record the last visible
+code/photo. Return the stick for read-only RECLOG extraction.
 
 ## Recently (exactly 3, newest first)
+
+### 2026-07-22 - Bounded exclusive boot checkpoints accepted
+`f84c224`: EB1..EB4P/E/F, five negative/bounds gates, release build and fresh
+read-only ACCEPT are green.
 
 ### 2026-07-22 - Hardware boot produced an empty RECLOG
 Loader visible, then black screen; verified read-only extraction returned zero
 frames and zero tail on the expected SanDisk USB device.
 
-### 2026-07-22 - Early checkpoint slice rejected then blocked
-Release build and bounds tests pass, but review rejected ambiguous persistence
-outcomes; two worker edit strategies hit the same Windows sandbox class.
-
-### 2026-07-22 - Reviewed Surface capture image prepared
-`a17c18b` provides bounded SMBIOS/CPUID/memory/PCI capture and verified
-readback, but this first hardware run never reached its USB append point.
+### 2026-07-22 - Reviewed Surface capture path prepared
+`a17c18b` provides bounded SMBIOS/CPUID/memory/PCI capture with verified durable
+readback; the first hardware run did not reach its USB append point.
