@@ -194,6 +194,9 @@ Vor Claim-Erzeugung gelten in dieser Reihenfolge folgende harte Gates:
    der SHA-256 der exakten Launcher-Datei sind in der Recovery-Autorität
    festgelegt. Eine frische unabhängige Read-only-Review muss sowohl die
    Korrektur als auch die nachfolgende Windows-Regression akzeptiert haben.
+   Für diese Recovery sind das ausschließlich Commit
+   `4c77bdaf03a42ab0e543ca389e1310d7bcf5baf2` und Launcher-Datei-SHA-256
+   `62c2841079702c544b0459082262e3b6be28bc7b5cb0027f55d3017adc539554`.
 2. Ein produktionsnaher Windows-Test durchläuft denselben Resolver und
    Startpfad mit einem `.ps1`-Shim. Er beweist native Host-Auflösung,
    `UseShellExecute=false`, exakte Argumente und exakte stdin-Bytes bei genau
@@ -204,6 +207,12 @@ Vor Claim-Erzeugung gelten in dieser Reihenfolge folgende harte Gates:
    festgelegt: native Host-Datei, gegebenenfalls Shim, deren kanonische Pfade
    und SHA-256, strukturierte Argumente, stdin-Hash und genau ein Child. Ein
    späteres erneutes Auflösen nach Pfad ist verboten.
+   Der einzige autorisierte Resolver-Eingang ist
+   `C:\Users\admin\AppData\Roaming\npm\codex.ps1` mit SHA-256
+   `0c149db80ed0bf442c810146b0ad0163b74982fe4542d673f56c354d7b8229cb`;
+   der einzige native Host ist
+   `C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe` mit SHA-256
+   `7600ffe12da441fe89d035b13801e8e91d064bc544a27b19a5cf49f6ab8b18f5`.
 4. R3-Claim, Fehlerlog, R3-Auftrag, alle vier Produkt-Prehashes, der
    korrigierte Launcher-Commit samt Datei-Hash, Maschine, Manifest, Fakt,
    Sandbox und der aufgelöste Windows-Startplan werden gegen die oben
