@@ -3,7 +3,7 @@
 > Window, not log: one Now, one Next step, three Recently entries. Replace on
 > update; never append. Keep under 60 lines and roughly 2 KB.
 
-## Now (2026-07-22, accepted EB1 split ready to package)
+## Now (2026-07-22, EB1-split USB ready for hardware boot)
 
 Canonical `main` is `C:\Users\admin\Documents\raios2-main` at pushed
 `f330e82`. The detached old root `C:\Users\admin\Documents\raios2` remains
@@ -30,11 +30,17 @@ return, then EB2 after Surface capture. Predicate bounds and six mutations,
 freestanding release build, and fresh read-only review are green with no
 findings. No provider/console/capture/USB call count or semantics changed.
 
+The firmware-bearing `f330e82` payload was packaged with kernel SHA-256
+`8c6181673e18778ee1e1890cd3ee139acaecc646317c4e10028a8f9490d29900`;
+Core Policy A/generation 1 and the embedded Marvell payload verified. It was
+written to the revalidated SanDisk USB disk 1, serial
+`0101d57ec458c24f1b93`; post-write GPT A/B, BOOTCTL and SEED_DATA passed.
+
 ## Next step
 
-Package and write a firmware-bearing `f330e82` persistent image to the same
-revalidated SanDisk USB. Cold-boot once and record whether the last code is
-EB1, EB1P, EB1C or EB2. Then power off and return the stick read-only.
+Cold-boot once and record whether the last code is EB1, EB1P, EB1C or EB2.
+Then power off and return the stick for read-only extraction; do not repeat
+the boot before extraction.
 
 ## Recently (exactly 3, newest first)
 
