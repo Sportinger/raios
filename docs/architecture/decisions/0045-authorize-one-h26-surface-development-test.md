@@ -76,3 +76,37 @@ The next H26 stick can be produced without fabricating machine facts. The cost
 is a deliberately narrow governance and launcher exception plus one additional
 review gate. ADR 0027 and ADR 0038 remain unchanged for every other Surface
 lane and for any test after this exception expires.
+
+## R2-Erweiterung (2026-07-22)
+
+Der erste autorisierte H26-Dispatch lieferte einen grünen Vier-Dateien-Diff,
+aber zwei vorgeschriebene unabhängige Unsafe-Reviews widersprachen sich. Eine
+Review akzeptierte die unveränderten DMA-/Bounds-Invarianten; die adversariale
+Review wies zwei nicht ausreichend bewiesene Grenzen nach: Scan-`CMD_DONE` ist
+nicht an die erwartete Scan-Sequenz gebunden, und die ausgewählte BSS kann
+theoretisch zwischen Revalidierung und Associate-Publikation beziehungsweise
+Netzwerkfreigabe ersetzt werden. Deshalb wurden weder Unsafe-Baseline noch
+Produktdiff akzeptiert, committed, paketiert oder auf USB geschrieben.
+
+Der Owner autorisierte daraufhin ausdrücklich genau einen zweiten
+H26-Reparaturdispatch und diese ADR-Erweiterung. Dafür gilt:
+
+1. Der neue einmalige Launcher-Token ist `ADR-0045-H26-R2`; er verwendet einen
+   eigenen atomaren Claim und darf den verbrauchten ersten Claim weder löschen
+   noch wieder freigeben. Maschine, Manifest-Digest und einziger Fact-Pfad
+   bleiben unverändert.
+2. R2 darf ausschließlich die erwartete Scan-Sequenz bis zur Antwortprüfung
+   tragen und die selected-BSS-/selection-epoch-Bindung atomar bis über
+   Associate-Publikation und Netzwerkfreigabe beweisen. Der vorhandene
+   Vier-Dateien-Diff darf dafür nur innerhalb derselben vier Dateien repariert
+   werden.
+3. R2 darf weiterhin keine DMA-Spans, Pointer, Descriptoren, PCI-/BAR-Zustände,
+   Ressourcen, Firmware, USB, Storage, Authentifizierungsalgorithmen oder
+   Domain-Grants ändern. Entsteht dafür ein Bedarf, endet die Ausnahme.
+4. Beide ursprünglichen Findings brauchen gezielte positive und negative
+   Mutationen. Danach müssen alle H26-Predicates, Release-Build,
+   Unsafe-Inventar und eine neue unabhängige Read-only-Review grün sein. Erst
+   dann dürfen exakt die geprüften Unsafe-Hashes neu gebunden werden.
+5. Die ursprüngliche Autorisierung für genau ein resultierendes
+   Owner-custodied Image/Write/Cold-Boot/Extraction bleibt unverändert. R2
+   autorisiert kein zweites Image und keinen zusätzlichen Hardwaretest.
