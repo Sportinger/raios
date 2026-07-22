@@ -12,7 +12,8 @@ use core::ptr;
 use limine::modules::InternalModule;
 use limine::request::{
     ExecutableAddressRequest, ExecutableFileRequest, FramebufferRequest, HhdmRequest,
-    MemoryMapRequest, ModuleRequest, RequestsEndMarker, RequestsStartMarker, StackSizeRequest,
+    MemoryMapRequest, ModuleRequest, RequestsEndMarker, RequestsStartMarker, SmbiosRequest,
+    StackSizeRequest,
 };
 use limine::BaseRevision;
 use linked_list_allocator::LockedHeap;
@@ -126,6 +127,7 @@ mod structured_store;
 mod structured_store_c1;
 mod system_problem_facts;
 mod system_status;
+mod surface_fact_capture;
 mod text;
 mod time;
 mod tls_io;
@@ -168,6 +170,10 @@ static HHDM_REQUEST: HhdmRequest = HhdmRequest::new();
 #[used]
 #[link_section = ".limine_requests"]
 static MEMORY_MAP_REQUEST: MemoryMapRequest = MemoryMapRequest::new();
+
+#[used]
+#[link_section = ".limine_requests"]
+static SMBIOS_REQUEST: SmbiosRequest = SmbiosRequest::new();
 
 #[used]
 #[link_section = ".limine_requests"]
@@ -251,7 +257,26 @@ fn early_main() -> ! {
         serial::write_line("Default provider loaded: OPENAI API key set");
     }
     console::init();
+    let surface_capture = surface_fact_capture::capture(
+        SMBIOS_REQUEST.get_response(),
+        MEMORY_MAP_REQUEST.get_response(),
+        HHDM_REQUEST.get_response(),
+    );
+    if let Err(reason) = &surface_capture {
+        serial::write_fmt(format_args!(
+            "surface-capture: measurement rejected reason={}\r\n",
+            reason
+        ));
+    }
     usb::init();
+    if let Ok(records) = surface_capture {
+        match usb::append_surface_fact_capture(&records) {
+            Ok(()) => serial::write_line("surface-capture: series persisted and verified"),
+            Err(reason) => serial::write_fmt(format_args!(
+                "surface-capture: persistence stopped reason={}\r\n", reason
+            )),
+        }
+    }
     let iommu_report = iommu_vtd::probe();
     if iommu_report.present {
         let remapping = if iommu_report.remapping_enabled {

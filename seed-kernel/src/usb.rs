@@ -1,10 +1,10 @@
 #![allow(static_mut_refs)]
 
-use alloc::{string::String, vec};
+use alloc::{string::String, vec, vec::Vec};
 use core::fmt::Write;
 use core::hint::spin_loop;
 use core::ptr;
-use core::sync::atomic::{fence, Ordering};
+use core::sync::atomic::{fence, AtomicBool, Ordering};
 
 use spin::Mutex;
 
@@ -23,6 +23,11 @@ use raios_core::{
         HwFailureTraceLatch, HwFailureTraceQueueResult,
     },
     seed_data_layout, sha256_bytes,
+    surface_fact_capture::{validate_capture, CapturePayload, CaptureRecord},
+    surface_fact_capture_wire::{
+        decode as decode_surface_fact, encode as encode_surface_fact,
+        SURFACE_FACT_WIRE_MAGIC, SURFACE_FACT_WIRE_MAX_RECORD_LEN,
+    },
 };
 
 const PCI_CLASS_SERIAL_BUS: u8 = 0x0C;
@@ -165,6 +170,7 @@ static STATE: Mutex<UsbState> = Mutex::new(UsbState::new());
 static PUBLICATION_CHECKPOINT_LATCH: Mutex<HwFailureTraceLatch> =
     Mutex::new(HwFailureTraceLatch::new());
 static HW_FAILURE_TRACE_LATCH: Mutex<HwFailureTraceLatch> = Mutex::new(HwFailureTraceLatch::new());
+static SURFACE_CAPTURE_APPEND_AVAILABLE: AtomicBool = AtomicBool::new(true);
 
 #[derive(Clone, Copy)]
 pub struct UsbSnapshot {
@@ -359,6 +365,23 @@ pub fn init() {
         snapshot,
         controller,
     };
+}
+
+/// Persists one already-complete Surface Fact Wire V1 series exactly once.
+/// Preflight rejection leaves H25 available; after a write attempt, any
+/// failure poisons the shared append point and blocks later completion/H25.
+pub fn append_surface_fact_capture(records: &[CaptureRecord]) -> Result<(), &'static str> {
+    if SURFACE_CAPTURE_APPEND_AVAILABLE
+        .compare_exchange(true, false, Ordering::AcqRel, Ordering::Acquire)
+        .is_err()
+    {
+        return Err("surface_capture_append_already_attempted");
+    }
+    validate_capture(records).map_err(|error| error.code())?;
+    let mut state = STATE.lock();
+    let controller = state.controller.as_mut().ok_or("usb_controller_unavailable")?;
+    // SAFETY: Reason: init owns the live xHCI controller. Invariant: STATE remains locked for the complete series.
+    unsafe { controller.append_surface_fact_series(records) }
 }
 
 pub fn rescan_if_input_missing() -> bool {
@@ -3588,6 +3611,157 @@ impl XhciController {
             point,
             frame_sha256: parsed.frame_sha256,
         })
+    }
+
+    // SAFETY: Reason: this reuses initialized xHCI DMA. Invariant: STATE owns the controller and every write is read back.
+    unsafe fn append_surface_fact_series(
+        &mut self,
+        records: &[CaptureRecord],
+    ) -> Result<(), &'static str> {
+        let validated = validate_capture(records).map_err(|error| error.code())?;
+        if validated.part_count as usize != records.len() {
+            return Err("surface_capture_physical_count");
+        }
+        for (position, record) in records.iter().enumerate() {
+            if record.header.part_index as usize != position {
+                return Err("surface_capture_physical_order");
+            }
+            if record.header.part_count != validated.part_count
+                || record.header.capture_id != validated.capture_id
+            {
+                return Err("surface_capture_physical_identity");
+            }
+        }
+        if !matches!(
+            records.last().map(|record| record.payload),
+            Some(CapturePayload::Completion(_))
+        ) {
+            return Err("surface_capture_physical_completion_not_final");
+        }
+
+        let mut encoded = Vec::with_capacity(records.len());
+        for record in records {
+            let mut payload = [0u8; SURFACE_FACT_WIRE_MAX_RECORD_LEN];
+            let length = encode_surface_fact(record, &mut payload)
+                .map_err(|error| error.code())?;
+            let decoded = decode_surface_fact(&payload[..length])
+                .map_err(|error| error.code())?;
+            if decoded != *record {
+                return Err("surface_capture_wire_preflight_mismatch");
+            }
+            encoded.push((payload, length));
+        }
+
+        let point = self.reclog_append_point.ok_or(self.reclog_append_unavailable_reason)?;
+        let record_count = u64::try_from(encoded.len()).map_err(|_| "surface_capture_count")?;
+        // Keep one sector beyond the completed capture for the next H25 append.
+        let after_lba = point
+            .lba
+            .checked_add(record_count)
+            .ok_or("surface_capture_reclog_capacity")?;
+        point
+            .seq
+            .checked_add(record_count)
+            .ok_or("surface_capture_reclog_sequence_capacity")?;
+        if after_lba >= self.reclog_end_lba {
+            return Err("surface_capture_reclog_capacity");
+        }
+        for offset in 0..record_count {
+            let lba = point
+                .lba
+                .checked_add(offset)
+                .ok_or("surface_capture_reclog_capacity")?;
+            if !all_zero(&self.msc_read_sector_copy(lba)?) {
+                return Err("surface_capture_target_not_zero");
+            }
+        }
+
+        for (payload, length) in encoded {
+            if let Err(reason) = self.append_surface_fact_payload(&payload[..length]) {
+                self.reclog_append_point = None;
+                return Err(reason);
+            }
+        }
+        Ok(())
+    }
+
+    /// Appends one canonical RAIOSSF0 payload at the cached RECLOG point.
+    /// The point and predecessor hash advance only after FUA/readback/reparse.
+    // SAFETY: Reason: MSC commands access static DMA. Invariant: the controller is locked and the target sector is zero.
+    unsafe fn append_surface_fact_payload(&mut self, payload: &[u8]) -> Result<(), &'static str> {
+        if payload.len() > SURFACE_FACT_WIRE_MAX_RECORD_LEN
+            || payload.get(..SURFACE_FACT_WIRE_MAGIC.len())
+                != Some(SURFACE_FACT_WIRE_MAGIC.as_slice())
+        {
+            return Err("surface_capture_payload_invalid");
+        }
+        let expected_record = decode_surface_fact(payload).map_err(|error| error.code())?;
+        let prepared_point = self
+            .reclog_append_point
+            .ok_or(self.reclog_append_unavailable_reason)?;
+        if prepared_point.lba >= self.reclog_end_lba { return Err("reclog_full"); }
+        let mut frame = [0u8; MSC_SECTOR_BUFFER_LEN];
+        frame[..RECLOG_MAGIC.len()].copy_from_slice(RECLOG_MAGIC);
+        write_le32(&mut frame, 8, MSC_SECTOR_BUFFER_LEN as u32);
+        write_le32(&mut frame, 12, payload.len() as u32);
+        write_le64(&mut frame, 16, prepared_point.seq);
+        frame[RECLOG_PREV_FRAME_SHA256_OFFSET..RECLOG_PREV_FRAME_SHA256_OFFSET + 32]
+            .copy_from_slice(&prepared_point.prev_frame_sha256);
+        frame[RECLOG_PAYLOAD_SHA256_OFFSET..RECLOG_PAYLOAD_SHA256_OFFSET + 32]
+            .copy_from_slice(&sha256_bytes(payload));
+        frame[RECLOG_FRAME_HEADER_LEN..RECLOG_FRAME_HEADER_LEN + payload.len()]
+            .copy_from_slice(payload);
+
+        for (index, byte) in frame.iter().copied().enumerate() {
+            ptr::write_volatile(ptr::addr_of_mut!(MSC_BUFFER.0[index]), byte);
+        }
+        let point = self
+            .reclog_append_point
+            .take()
+            .ok_or(self.reclog_append_unavailable_reason)?;
+        if point.lba != prepared_point.lba
+            || point.seq != prepared_point.seq
+            || point.prev_frame_sha256 != prepared_point.prev_frame_sha256
+        {
+            return Err("surface_capture_append_point_changed");
+        }
+        self.msc_write_sector_from_buffer(point.lba)?;
+        let readback = self.msc_read_sector_copy(point.lba)?;
+        if readback != frame { return Err("surface_capture_readback_mismatch"); }
+        let parsed = parse_reclog_frame(&readback, 0, point.seq, point.prev_frame_sha256)
+            .map_err(|_| "surface_capture_readback_parse_failed")?;
+        if parsed.payload_len as usize != payload.len() {
+            return Err("surface_capture_readback_payload_length");
+        }
+        let payload_end = RECLOG_FRAME_HEADER_LEN
+            .checked_add(parsed.payload_len as usize)
+            .ok_or("surface_capture_readback_payload_length")?;
+        let reparsed = decode_surface_fact(
+            readback
+                .get(RECLOG_FRAME_HEADER_LEN..payload_end)
+                .ok_or("surface_capture_readback_payload_length")?,
+        )
+        .map_err(|_| "surface_capture_readback_wire_parse_failed")?;
+        if reparsed != expected_record {
+            return Err("surface_capture_readback_wire_mismatch");
+        }
+        let next_lba = point
+            .lba
+            .checked_add(1)
+            .ok_or("surface_capture_reclog_capacity")?;
+        let next_seq = point
+            .seq
+            .checked_add(1)
+            .ok_or("surface_capture_reclog_sequence_capacity")?;
+        if next_lba >= self.reclog_end_lba {
+            return Err("reclog_full");
+        }
+        self.reclog_append_point = Some(ReclogAppendPoint {
+            lba: next_lba,
+            seq: next_seq,
+            prev_frame_sha256: parsed.frame_sha256,
+        });
+        Ok(())
     }
 
     /// Uses the append point proven by the boot probe. This deliberately does
