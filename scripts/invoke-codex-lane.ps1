@@ -19,17 +19,21 @@ $MachineContextMaxChars = 16384
 $ReservedMachineContextToken = "raios-machine-context"
 $Adr0045ExceptionToken = "ADR-0045-H26"
 $Adr0045R2ExceptionToken = "ADR-0045-H26-R2"
+$Adr0045R3ExceptionToken = "ADR-0045-H26-R3"
 $Adr0045MachineId = "surface-pro-4"
 $Adr0045ManifestSha256 = "08c8d977f48f5a846edecaf31cc4d205291105dc5c821960df21621e17b36189"
 $Adr0045FactPath = "/devices/2/identity"
 $Adr0045FactValue = "Marvell 88W8897"
 $Adr0045OrderMarker = "Governance exception: ADR-0045-H26"
 $Adr0045R2OrderMarker = "Governance exception: ADR-0045-H26-R2"
+$Adr0045R3OrderMarker = "Governance exception: ADR-0045-H26-R3"
 $Adr0045DecisionRelativePath = "docs/architecture/decisions/0045-authorize-one-h26-surface-development-test.md"
 $Adr0045DecisionSha256 = "a190c50925cb3e15659384146529851e1d2ca26b7692584dd16f46effc439061"
 $Adr0045R2DecisionSha256 = "71c6eb3b177738b3b8a338d699b2b1e0a277323926d7c0c8d857b31187f37e84"
+$Adr0045R3DecisionSha256 = "3f3b0c42b7d1f48fc19381bf5a2d0eb9ca0857c0c94cde7a77e8674658e0506e"
 $Adr0045ClaimRelativePath = "target\state\adr0045-h26.claim"
 $Adr0045R2ClaimRelativePath = "target\state\adr0045-h26-r2.claim"
+$Adr0045R3ClaimRelativePath = "target\state\adr0045-h26-r3.claim"
 . (Join-Path $PSScriptRoot "check-hardware-manifests.ps1")
 
 function Throw-LaneGateDenial {
@@ -157,7 +161,16 @@ function Get-Adr0045ExceptionBinding {
             claim_schema = "raios.adr0045_h26_r2_claim.v1"
         }
     }
-    Throw-LaneGateDenial "governance_exception_invalid" "GovernanceException must be empty, exactly '$Adr0045ExceptionToken', or exactly '$Adr0045R2ExceptionToken'" $Token
+    if ($Token -ceq $Adr0045R3ExceptionToken) {
+        return [pscustomobject]@{
+            token = $Adr0045R3ExceptionToken
+            order_marker = $Adr0045R3OrderMarker
+            decision_sha256 = $Adr0045R3DecisionSha256
+            claim_relative_path = $Adr0045R3ClaimRelativePath
+            claim_schema = "raios.adr0045_h26_r3_claim.v1"
+        }
+    }
+    Throw-LaneGateDenial "governance_exception_invalid" "GovernanceException must be empty, exactly '$Adr0045ExceptionToken', exactly '$Adr0045R2ExceptionToken', or exactly '$Adr0045R3ExceptionToken'" $Token
 }
 
 function Open-Adr0045AuthorityLease {
@@ -588,6 +601,7 @@ public static class Adr0045AtomicClaimRace {
         $surface = Get-Content -Raw -LiteralPath $surfacePath | ConvertFrom-Json
         $exceptionOrderContent = $orderContent + [Environment]::NewLine + $Adr0045OrderMarker
         $r2ExceptionOrderContent = $orderContent + [Environment]::NewLine + $Adr0045R2OrderMarker
+        $r3ExceptionOrderContent = $orderContent + [Environment]::NewLine + $Adr0045R3OrderMarker
         $cases = New-Object System.Collections.Generic.List[object]
         function Reset-Sentinel { Remove-Item -LiteralPath $countPath, $argsPath, $promptPath -Force -ErrorAction SilentlyContinue }
         function Get-InvocationCount { if (Test-Path -LiteralPath $countPath) { return [int](Get-Content -Raw -LiteralPath $countPath) }; return 0 }
@@ -644,26 +658,37 @@ public static class Adr0045AtomicClaimRace {
 
         $exceptionFactPaths = @($Adr0045FactPath)
         $authoritySourcePath = Join-Path $LauncherRepoRoot $Adr0045DecisionRelativePath
-        $r2AuthorityBytes = [IO.File]::ReadAllBytes($authoritySourcePath)
+        $r3AuthorityBytes = [IO.File]::ReadAllBytes($authoritySourcePath)
         $strictUtf8 = New-Object Text.UTF8Encoding($false, $true)
+        $r3AuthorityText = $strictUtf8.GetString($r3AuthorityBytes)
+        $r3SectionMarker = "## R3-Erweiterung (2026-07-22)"
+        $r3SectionIndex = $r3AuthorityText.IndexOf($r3SectionMarker, [StringComparison]::Ordinal)
+        if ($r3SectionIndex -lt 2 -or $r3AuthorityText[$r3SectionIndex - 1] -ne "`n" -or $r3AuthorityText[$r3SectionIndex - 2] -ne "`n") {
+            throw "ADR-0045 R2 authority prefix cannot be reconstructed exactly inside the selftest"
+        }
+        $r2AuthorityBytes = $strictUtf8.GetBytes($r3AuthorityText.Substring(0, $r3SectionIndex - 1))
         $r2AuthorityText = $strictUtf8.GetString($r2AuthorityBytes)
         $r2SectionMarker = "## R2-Erweiterung (2026-07-22)"
         $r2SectionIndex = $r2AuthorityText.IndexOf($r2SectionMarker, [StringComparison]::Ordinal)
         if ($r2SectionIndex -lt 2 -or $r2AuthorityText[$r2SectionIndex - 1] -ne "`n" -or $r2AuthorityText[$r2SectionIndex - 2] -ne "`n") {
             throw "ADR-0045 R1 authority prefix cannot be reconstructed exactly inside the selftest"
         }
-        # R1 remains bound to the pre-R2 authority. Reconstruct only that exact
-        # committed prefix in the temp directory; production never accepts it
-        # for R2 and never receives an authority-digest override.
+        # R1/R2 remain bound to their earlier authority prefixes. Reconstruct
+        # only those exact committed prefixes in the temp directory; production
+        # receives neither a reconstructed ADR nor an authority-digest override.
         $authorityBytes = $strictUtf8.GetBytes($r2AuthorityText.Substring(0, $r2SectionIndex - 1))
-        if ((Get-Sha256Hex $authorityBytes) -cne $Adr0045DecisionSha256 -or (Get-Sha256Hex $r2AuthorityBytes) -cne $Adr0045R2DecisionSha256) {
-            throw "ADR-0045 R1/R2 selftest authority fixtures do not match their hard-coded production digests"
+        if ((Get-Sha256Hex $authorityBytes) -cne $Adr0045DecisionSha256 -or
+            (Get-Sha256Hex $r2AuthorityBytes) -cne $Adr0045R2DecisionSha256 -or
+            (Get-Sha256Hex $r3AuthorityBytes) -cne $Adr0045R3DecisionSha256) {
+            throw "ADR-0045 R1/R2/R3 selftest authority fixtures do not match their hard-coded production digests"
         }
         $exceptionAdrPath = Join-Path $tempRoot "adr0045-authority.md"
         $r2ExceptionAdrPath = Join-Path $tempRoot "adr0045-r2-authority.md"
+        $r3ExceptionAdrPath = Join-Path $tempRoot "adr0045-r3-authority.md"
         $exceptionClaimPath = Join-Path $tempRoot "adr0045-positive.claim"
         [IO.File]::WriteAllBytes($exceptionAdrPath, $authorityBytes)
         [IO.File]::WriteAllBytes($r2ExceptionAdrPath, $r2AuthorityBytes)
+        [IO.File]::WriteAllBytes($r3ExceptionAdrPath, $r3AuthorityBytes)
         [IO.File]::WriteAllText($order, $exceptionOrderContent, (New-Object Text.UTF8Encoding($false)))
         Reset-Sentinel
         $exceptionDispatch = Invoke-CodexLaneGate $order $Adr0045MachineId $surfaceDigest $exceptionFactPaths "workspace-write" $report $Schema `
@@ -882,8 +907,77 @@ public static class Adr0045AtomicClaimRace {
                 "delete_failed=$($r2HookObservation.delete_failed):$($r2HookObservation.delete_error)",
                 "snapshot_digest=$($r2HookObservation.snapshot_digest)", "authority_exact=$r2LeaseAuthorityExact") })
 
+        $r2ClaimBytesBeforeR3 = [IO.File]::ReadAllBytes($r2ClaimPath)
+        $r3ClaimPath = Join-Path $tempRoot "adr0045-r3-positive.claim"
+        [IO.File]::WriteAllText($order, $r3ExceptionOrderContent, (New-Object Text.UTF8Encoding($false)))
+        Reset-Sentinel
+        $r3Dispatch = Invoke-CodexLaneGate $order $Adr0045MachineId $surfaceDigest $exceptionFactPaths "workspace-write" $report $Schema `
+            -GovernanceException $Adr0045R3ExceptionToken -Adr0045DecisionPathOverride $r3ExceptionAdrPath -Adr0045ClaimPathOverride $r3ClaimPath `
+            -ManifestPathOverride $surfacePath -ChildCommand $fake
+        $r3Args = [IO.File]::ReadAllLines($argsPath); $r3Prompt = Get-Content -Raw -LiteralPath $promptPath
+        $r3Match = [regex]::Match($r3Prompt, '(?s)<raios-machine-context>\r?\n(.+?)\r?\n</raios-machine-context>')
+        $r3Context = if ($r3Match.Success) { $r3Match.Groups[1].Value | ConvertFrom-Json } else { $null }
+        $r3Claim = if ([IO.File]::Exists($r3ClaimPath)) { Get-Content -Raw -LiteralPath $r3ClaimPath | ConvertFrom-Json } else { $null }
+        $expectedR3Context = [ordered]@{
+            schema = "raios.machine_curated_context.v1"
+            machine_manifest = "$Adr0045MachineId@sha256:$Adr0045ManifestSha256"
+            required_fact_paths = @($Adr0045FactPath)
+            facts = @([ordered]@{ path = $Adr0045FactPath; status = $exceptionSelectedFact.status; value = $exceptionSelectedFact.value; provenance = $exceptionSelectedFact.provenance })
+        }
+        $expectedR3Context["governance_exception"] = $Adr0045R3ExceptionToken
+        $expectedR3Context["governance_exception_adr_sha256"] = $Adr0045R3DecisionSha256
+        $expectedR3Json = ($expectedR3Context | ConvertTo-Json -Depth 20 -Compress).Replace('<', '\u003c').Replace('>', '\u003e')
+        $expectedR3Prompt = $r3ExceptionOrderContent.TrimEnd() + $crlf + $crlf + "<raios-machine-context>" + $crlf + $expectedR3Json + $crlf + "</raios-machine-context>"
+        $r3ArgsExact = (@($r3Args) -join [char]0) -ceq ($expectedExceptionArgs -join [char]0)
+        $r3PromptExact = $r3Prompt -ceq $expectedR3Prompt
+        $r3ClaimExact = $null -ne $r3Claim -and $r3Claim.schema -ceq "raios.adr0045_h26_r3_claim.v1" -and
+            $r3Claim.token -ceq $Adr0045R3ExceptionToken -and $r3Claim.machine -ceq $Adr0045MachineId -and
+            $r3Claim.manifest_sha256 -ceq $Adr0045ManifestSha256 -and $r3Claim.fact_path -ceq $Adr0045FactPath -and
+            $r3Claim.adr_sha256 -ceq $Adr0045R3DecisionSha256
+        $r3PositivePassed = (Get-InvocationCount) -eq 1 -and $r3Dispatch.child_started -and $r3ArgsExact -and
+            $r3PromptExact -and $r3Match.Success -and $r3Context.governance_exception -ceq $Adr0045R3ExceptionToken -and
+            $r3Context.governance_exception_adr_sha256 -ceq $Adr0045R3DecisionSha256 -and $r3ClaimExact -and
+            @($r3Context.required_fact_paths).Count -eq 1 -and $r3Context.required_fact_paths[0] -ceq $Adr0045FactPath -and
+            @($r3Context.facts).Count -eq 1 -and $r3Context.facts[0].status -ceq "observed" -and
+            $r3Context.facts[0].value -ceq $Adr0045FactValue
+        $cases.Add([ordered]@{ name = "adr0045-r3-exact-positive-one-fake-child"; expected_reason = "accepted";
+            actual_reason = if ($r3PositivePassed) { "accepted" } else { "positive_assertion_failed" };
+            child_started = $r3Dispatch.child_started; child_invocation_count = Get-InvocationCount; passed = $r3PositivePassed;
+            detail_codes = @("argv_exact=$r3ArgsExact", "stdin_exact=$r3PromptExact", "claim_binding_exact=$r3ClaimExact",
+                "exception=$($r3Context.governance_exception)", "adr_digest=$($r3Context.governance_exception_adr_sha256)") })
+
+        $r3ReplayBefore = Get-InvocationCount; $r3ReplayReason = "accepted"; $r3ReplayChildStarted = $false
+        try {
+            $null = Invoke-CodexLaneGate $order $Adr0045MachineId $surfaceDigest $exceptionFactPaths "workspace-write" $report $Schema `
+                -GovernanceException $Adr0045R3ExceptionToken -Adr0045DecisionPathOverride $r3ExceptionAdrPath -Adr0045ClaimPathOverride $r3ClaimPath `
+                -ManifestPathOverride $surfacePath -ChildCommand $fake
+        } catch {
+            $r3ReplayReason = [string]$_.Exception.Data["reason"]
+            $r3ReplayChildStarted = [bool]$_.Exception.Data["child_started"]
+        }
+        $r3ReplayAfter = Get-InvocationCount
+        $r3ReplayPassed = $r3ReplayReason -ceq "governance_exception_already_consumed" -and -not $r3ReplayChildStarted -and
+            $r3ReplayBefore -eq 1 -and $r3ReplayAfter -eq $r3ReplayBefore
+        $cases.Add([ordered]@{ name = "adr0045-r3-second-identical-dispatch-denied"; expected_reason = "governance_exception_already_consumed";
+            actual_reason = $r3ReplayReason; child_started = $r3ReplayChildStarted; child_invocation_count = $r3ReplayAfter; passed = $r3ReplayPassed;
+            detail_codes = @("before=$r3ReplayBefore", "after=$r3ReplayAfter", "additional=$($r3ReplayAfter - $r3ReplayBefore)") })
+
+        Reset-Sentinel
+        $r3RaceClaimPath = Join-Path $tempRoot "adr0045-r3-race.claim"
+        $r3ClaimBindingBytes = [IO.File]::ReadAllBytes($r3ClaimPath)
+        $r3RaceResult = [Adr0045AtomicClaimRace]::Run($r3RaceClaimPath, $r3ClaimBindingBytes)
+        $r3RaceUnexpectedErrors = @($r3RaceResult.UnexpectedErrors | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+        $r3RaceContentExact = [IO.File]::Exists($r3RaceClaimPath) -and
+            [Convert]::ToBase64String([IO.File]::ReadAllBytes($r3RaceClaimPath)) -ceq [Convert]::ToBase64String($r3ClaimBindingBytes)
+        $r3RacePassed = $r3RaceResult.WinnerCount -eq 1 -and $r3RaceUnexpectedErrors.Count -eq 0 -and $r3RaceContentExact -and (Get-InvocationCount) -eq 0
+        $cases.Add([ordered]@{ name = "adr0045-r3-create-new-race-single-winner"; expected_reason = "one_atomic_winner";
+            actual_reason = if ($r3RacePassed) { "one_atomic_winner" } else { "claim_race_assertion_failed" };
+            child_started = $false; child_invocation_count = Get-InvocationCount; passed = $r3RacePassed;
+            detail_codes = @("winners=$($r3RaceResult.WinnerCount)", "content_exact=$r3RaceContentExact") + $r3RaceUnexpectedErrors })
+
         $r1Binding = Get-Adr0045ExceptionBinding $Adr0045ExceptionToken
         $r2Binding = Get-Adr0045ExceptionBinding $Adr0045R2ExceptionToken
+        $r3Binding = Get-Adr0045ExceptionBinding $Adr0045R3ExceptionToken
         [IO.File]::WriteAllText($order, $r2ExceptionOrderContent, (New-Object Text.UTF8Encoding($false)))
         Run-Denial "adr0045-r2-cannot-use-r1-claim" {
             Invoke-CodexLaneGate $order $Adr0045MachineId $surfaceDigest $exceptionFactPaths "workspace-write" $report $Schema -GovernanceException $Adr0045R2ExceptionToken -Adr0045DecisionPathOverride $r2ExceptionAdrPath -Adr0045ClaimPathOverride $exceptionClaimPath -ManifestPathOverride $surfacePath -ChildCommand $fake
@@ -892,21 +986,42 @@ public static class Adr0045AtomicClaimRace {
         Run-Denial "adr0045-r1-cannot-use-r2-claim" {
             Invoke-CodexLaneGate $order $Adr0045MachineId $surfaceDigest $exceptionFactPaths "workspace-write" $report $Schema -GovernanceException $Adr0045ExceptionToken -Adr0045DecisionPathOverride $exceptionAdrPath -Adr0045ClaimPathOverride $r2ClaimPath -ManifestPathOverride $surfacePath -ChildCommand $fake
         } "governance_exception_already_consumed"
+        [IO.File]::WriteAllText($order, $r3ExceptionOrderContent, (New-Object Text.UTF8Encoding($false)))
+        Run-Denial "adr0045-r3-cannot-use-r1-claim" {
+            Invoke-CodexLaneGate $order $Adr0045MachineId $surfaceDigest $exceptionFactPaths "workspace-write" $report $Schema -GovernanceException $Adr0045R3ExceptionToken -Adr0045DecisionPathOverride $r3ExceptionAdrPath -Adr0045ClaimPathOverride $exceptionClaimPath -ManifestPathOverride $surfacePath -ChildCommand $fake
+        } "governance_exception_already_consumed"
+        Run-Denial "adr0045-r3-cannot-use-r2-claim" {
+            Invoke-CodexLaneGate $order $Adr0045MachineId $surfaceDigest $exceptionFactPaths "workspace-write" $report $Schema -GovernanceException $Adr0045R3ExceptionToken -Adr0045DecisionPathOverride $r3ExceptionAdrPath -Adr0045ClaimPathOverride $r2ClaimPath -ManifestPathOverride $surfacePath -ChildCommand $fake
+        } "governance_exception_already_consumed"
+        [IO.File]::WriteAllText($order, $exceptionOrderContent, (New-Object Text.UTF8Encoding($false)))
+        Run-Denial "adr0045-r1-cannot-use-r3-claim" {
+            Invoke-CodexLaneGate $order $Adr0045MachineId $surfaceDigest $exceptionFactPaths "workspace-write" $report $Schema -GovernanceException $Adr0045ExceptionToken -Adr0045DecisionPathOverride $exceptionAdrPath -Adr0045ClaimPathOverride $r3ClaimPath -ManifestPathOverride $surfacePath -ChildCommand $fake
+        } "governance_exception_already_consumed"
+        [IO.File]::WriteAllText($order, $r2ExceptionOrderContent, (New-Object Text.UTF8Encoding($false)))
+        Run-Denial "adr0045-r2-cannot-use-r3-claim" {
+            Invoke-CodexLaneGate $order $Adr0045MachineId $surfaceDigest $exceptionFactPaths "workspace-write" $report $Schema -GovernanceException $Adr0045R2ExceptionToken -Adr0045DecisionPathOverride $r2ExceptionAdrPath -Adr0045ClaimPathOverride $r3ClaimPath -ManifestPathOverride $surfacePath -ChildCommand $fake
+        } "governance_exception_already_consumed"
         $r1ClaimStillExact = [Convert]::ToBase64String([IO.File]::ReadAllBytes($exceptionClaimPath)) -ceq [Convert]::ToBase64String($r1ClaimBytesBeforeR2)
-        $r2ClaimStillExact = [Convert]::ToBase64String([IO.File]::ReadAllBytes($r2ClaimPath)) -ceq [Convert]::ToBase64String($r2ClaimBindingBytes)
+        $r2ClaimStillExact = [Convert]::ToBase64String([IO.File]::ReadAllBytes($r2ClaimPath)) -ceq [Convert]::ToBase64String($r2ClaimBytesBeforeR3)
+        $r3ClaimStillExact = [Convert]::ToBase64String([IO.File]::ReadAllBytes($r3ClaimPath)) -ceq [Convert]::ToBase64String($r3ClaimBindingBytes)
         $crossBindingPassed = $r1Binding.claim_relative_path -ceq "target\state\adr0045-h26.claim" -and
             $r2Binding.claim_relative_path -ceq "target\state\adr0045-h26-r2.claim" -and
-            $r1Binding.claim_relative_path -cne $r2Binding.claim_relative_path -and $r1ClaimStillExact -and $r2ClaimStillExact
-        $cases.Add([ordered]@{ name = "adr0045-r1-r2-cross-claim-isolation"; expected_reason = "isolated_immutable_claims";
+            $r3Binding.claim_relative_path -ceq "target\state\adr0045-h26-r3.claim" -and
+            $r1Binding.claim_relative_path -cne $r2Binding.claim_relative_path -and
+            $r1Binding.claim_relative_path -cne $r3Binding.claim_relative_path -and
+            $r2Binding.claim_relative_path -cne $r3Binding.claim_relative_path -and
+            $r1ClaimStillExact -and $r2ClaimStillExact -and $r3ClaimStillExact
+        $cases.Add([ordered]@{ name = "adr0045-r1-r2-r3-cross-claim-isolation"; expected_reason = "isolated_immutable_claims";
             actual_reason = if ($crossBindingPassed) { "isolated_immutable_claims" } else { "cross_claim_assertion_failed" };
             child_started = $false; child_invocation_count = Get-InvocationCount; passed = $crossBindingPassed;
             detail_codes = @("r1_path=$($r1Binding.claim_relative_path)", "r2_path=$($r2Binding.claim_relative_path)",
-                "r1_unchanged=$r1ClaimStillExact", "r2_unchanged=$r2ClaimStillExact") })
+                "r3_path=$($r3Binding.claim_relative_path)", "r1_unchanged=$r1ClaimStillExact",
+                "r2_unchanged=$r2ClaimStillExact", "r3_unchanged=$r3ClaimStillExact") })
 
         $r2NegativeClaimPath = Join-Path $tempRoot "adr0045-r2-negative.claim"
         [IO.File]::WriteAllText($order, $r2ExceptionOrderContent, (New-Object Text.UTF8Encoding($false)))
         Run-Denial "adr0045-r2-wrong-token" {
-            Invoke-CodexLaneGate $order $Adr0045MachineId $surfaceDigest $exceptionFactPaths "workspace-write" $report $Schema -GovernanceException "ADR-0045-H26-R3" -Adr0045ClaimPathOverride $r2NegativeClaimPath -ManifestPathOverride $surfacePath -ChildCommand $fake
+            Invoke-CodexLaneGate $order $Adr0045MachineId $surfaceDigest $exceptionFactPaths "workspace-write" $report $Schema -GovernanceException "ADR-0045-H26-R4" -Adr0045ClaimPathOverride $r2NegativeClaimPath -ManifestPathOverride $surfacePath -ChildCommand $fake
         } "governance_exception_invalid"
         Run-Denial "adr0045-r2-wrong-manifest-digest" {
             Invoke-CodexLaneGate $order $Adr0045MachineId ("0" * 64) $exceptionFactPaths "workspace-write" $report $Schema -GovernanceException $Adr0045R2ExceptionToken -Adr0045DecisionPathOverride $r2ExceptionAdrPath -Adr0045ClaimPathOverride $r2NegativeClaimPath -ManifestPathOverride $surfacePath -ChildCommand $fake
@@ -928,6 +1043,34 @@ public static class Adr0045AtomicClaimRace {
         [IO.File]::WriteAllText($order, $exceptionOrderContent, (New-Object Text.UTF8Encoding($false)))
         Run-Denial "adr0045-r2-wrong-order-marker" {
             Invoke-CodexLaneGate $order $Adr0045MachineId $surfaceDigest $exceptionFactPaths "workspace-write" $report $Schema -GovernanceException $Adr0045R2ExceptionToken -Adr0045DecisionPathOverride $r2ExceptionAdrPath -Adr0045ClaimPathOverride $r2NegativeClaimPath -ManifestPathOverride $surfacePath -ChildCommand $fake
+        } "governance_exception_order_marker_missing"
+        [IO.File]::WriteAllText($order, $exceptionOrderContent, (New-Object Text.UTF8Encoding($false)))
+
+        $r3NegativeClaimPath = Join-Path $tempRoot "adr0045-r3-negative.claim"
+        [IO.File]::WriteAllText($order, $r3ExceptionOrderContent, (New-Object Text.UTF8Encoding($false)))
+        Run-Denial "adr0045-r3-wrong-token" {
+            Invoke-CodexLaneGate $order $Adr0045MachineId $surfaceDigest $exceptionFactPaths "workspace-write" $report $Schema -GovernanceException "ADR-0045-H26-R4" -Adr0045ClaimPathOverride $r3NegativeClaimPath -ManifestPathOverride $surfacePath -ChildCommand $fake
+        } "governance_exception_invalid"
+        Run-Denial "adr0045-r3-wrong-manifest-digest" {
+            Invoke-CodexLaneGate $order $Adr0045MachineId ("0" * 64) $exceptionFactPaths "workspace-write" $report $Schema -GovernanceException $Adr0045R3ExceptionToken -Adr0045DecisionPathOverride $r3ExceptionAdrPath -Adr0045ClaimPathOverride $r3NegativeClaimPath -ManifestPathOverride $surfacePath -ChildCommand $fake
+        } "manifest_digest_mismatch"
+        Run-Denial "adr0045-r3-wrong-fact-path" {
+            Invoke-CodexLaneGate $order $Adr0045MachineId $surfaceDigest @("/cpu/model") "workspace-write" $report $Schema -GovernanceException $Adr0045R3ExceptionToken -Adr0045DecisionPathOverride $r3ExceptionAdrPath -Adr0045ClaimPathOverride $r3NegativeClaimPath -ManifestPathOverride $surfacePath -ChildCommand $fake
+        } "governance_exception_fact_paths_mismatch"
+        Run-Denial "adr0045-r3-wrong-sandbox" {
+            Invoke-CodexLaneGate $order $Adr0045MachineId $surfaceDigest $exceptionFactPaths "read-only" $report $Schema -GovernanceException $Adr0045R3ExceptionToken -Adr0045DecisionPathOverride $r3ExceptionAdrPath -Adr0045ClaimPathOverride $r3NegativeClaimPath -ManifestPathOverride $surfacePath -ChildCommand $fake
+        } "governance_exception_sandbox_mismatch"
+        Run-Denial "adr0045-r3-old-adr-digest" {
+            Invoke-CodexLaneGate $order $Adr0045MachineId $surfaceDigest $exceptionFactPaths "workspace-write" $report $Schema -GovernanceException $Adr0045R3ExceptionToken -Adr0045DecisionPathOverride $r2ExceptionAdrPath -Adr0045ClaimPathOverride $r3NegativeClaimPath -ManifestPathOverride $surfacePath -ChildCommand $fake
+        } "governance_exception_adr_digest_mismatch"
+        $m = Copy-JsonObject $surface; ($m.devices | Where-Object { $_.id -ceq "wifi" }).identity.value = "Marvell 88W8898"
+        $path = Write-Mutant "adr0045-r3-wrong-fact-value" $m; $digest = Get-TestFileDigest $path
+        Run-Denial "adr0045-r3-wrong-fact-value" {
+            Invoke-CodexLaneGate $order $Adr0045MachineId $digest $exceptionFactPaths "workspace-write" $report $Schema -GovernanceException $Adr0045R3ExceptionToken -Adr0045DecisionPathOverride $r3ExceptionAdrPath -Adr0045ClaimPathOverride $r3NegativeClaimPath -ManifestPathOverride $path -ChildCommand $fake
+        } "governance_exception_manifest_digest_mismatch"
+        [IO.File]::WriteAllText($order, $r2ExceptionOrderContent, (New-Object Text.UTF8Encoding($false)))
+        Run-Denial "adr0045-r3-wrong-order-marker" {
+            Invoke-CodexLaneGate $order $Adr0045MachineId $surfaceDigest $exceptionFactPaths "workspace-write" $report $Schema -GovernanceException $Adr0045R3ExceptionToken -Adr0045DecisionPathOverride $r3ExceptionAdrPath -Adr0045ClaimPathOverride $r3NegativeClaimPath -ManifestPathOverride $surfacePath -ChildCommand $fake
         } "governance_exception_order_marker_missing"
         [IO.File]::WriteAllText($order, $exceptionOrderContent, (New-Object Text.UTF8Encoding($false)))
 
