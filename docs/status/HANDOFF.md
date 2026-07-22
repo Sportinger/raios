@@ -3,7 +3,7 @@
 > Window, not log: one Now, one Next step, three Recently entries. Replace on
 > update; never append. Keep under 60 lines and roughly 2 KB.
 
-## Now (2026-07-22, Surface checkpoint image ready to package)
+## Now (2026-07-22, Surface checkpoint USB ready for hardware boot)
 
 Canonical `main` is `C:\Users\admin\Documents\raios2-main` at pushed
 `f84c224`. The detached old root `C:\Users\admin\Documents\raios2` remains
@@ -22,13 +22,18 @@ color fallbacks. Predicate bounds plus missing/duplicate/reorder/err-collapsed
 source mutations pass, the freestanding release build passes, and a fresh
 independent read-only review reports no findings and `VERDICT: ACCEPT`.
 
+The firmware-bearing `f84c224` payload was packaged with kernel SHA-256
+`5539cabd6363c9b427fd6e94dfa42c1952282a15eaca698bef50d6b16ac67f76`;
+Core Policy A/generation 1 and the single embedded Marvell firmware payload
+verified. It was written to the revalidated SanDisk USB disk 1 (serial
+`0101d57ec458c24f1b93`). Post-write GPT A/B, BOOTCTL and SEED_DATA inspection
+passed; the internal NVMe was excluded.
+
 ## Next step
 
-Package a new firmware-bearing persistent GPT image from `f84c224`, verify
-Core Policy/kernel binding and GPT/SEED_DATA, then write it to the already
-identified SanDisk USB disk only after revalidating model, serial, bus and
-non-boot/non-system posture. Cold-boot Surface once and record the last visible
-code/photo. Return the stick for read-only RECLOG extraction.
+Cold-boot the Surface once from this USB and record the last visible code/photo.
+Wait briefly if it stops, power off, then return the stick for read-only RECLOG
+extraction. Do not repeat the boot before extraction.
 
 ## Recently (exactly 3, newest first)
 
