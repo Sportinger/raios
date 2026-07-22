@@ -6,6 +6,7 @@ param(
     [Parameter(Mandatory = $true, ParameterSetName = "Dispatch")][string[]]$RequiredFactPath = @(),
     [Parameter(Mandatory = $true, ParameterSetName = "Dispatch")][string]$Sandbox = "",
     [Parameter(Mandatory = $true, ParameterSetName = "Dispatch")][string]$ReportPath = "",
+    [Parameter(ParameterSetName = "Dispatch")][AllowEmptyString()][string]$GovernanceException = "",
     [Parameter(Mandatory = $true, ParameterSetName = "SelfTest")][switch]$SelfTest
 )
 
@@ -16,6 +17,15 @@ $MachineManifestMaxBytes = 65536 # Fixed whole-file ceiling; the reader allocate
 $LaneOrderMaxBytes = 65536       # Fixed whole-file ceiling for the authored lane order.
 $MachineContextMaxChars = 16384
 $ReservedMachineContextToken = "raios-machine-context"
+$Adr0045ExceptionToken = "ADR-0045-H26"
+$Adr0045MachineId = "surface-pro-4"
+$Adr0045ManifestSha256 = "08c8d977f48f5a846edecaf31cc4d205291105dc5c821960df21621e17b36189"
+$Adr0045FactPath = "/devices/2/identity"
+$Adr0045FactValue = "Marvell 88W8897"
+$Adr0045OrderMarker = "Governance exception: ADR-0045-H26"
+$Adr0045DecisionRelativePath = "docs/architecture/decisions/0045-authorize-one-h26-surface-development-test.md"
+$Adr0045DecisionSha256 = "a190c50925cb3e15659384146529851e1d2ca26b7692584dd16f46effc439061"
+$Adr0045ClaimRelativePath = "target\state\adr0045-h26.claim"
 . (Join-Path $PSScriptRoot "check-hardware-manifests.ps1")
 
 function Throw-LaneGateDenial {
@@ -112,14 +122,143 @@ function Assert-LaneGateInputs {
     if ([string]::IsNullOrWhiteSpace($Report)) { Throw-LaneGateDenial "report_path_missing" "ReportPath is required" }
 }
 
+function Test-TextContainsExactLine {
+    param([string]$Text, [string]$ExpectedLine)
+    $reader = New-Object IO.StringReader($Text)
+    try {
+        while ($null -ne ($line = $reader.ReadLine())) {
+            if ($line -ceq $ExpectedLine) { return $true }
+        }
+        return $false
+    } finally { $reader.Dispose() }
+}
+
+function Open-Adr0045AuthorityLease {
+    param([string]$Path)
+    $capacity = [int]($LaneOrderMaxBytes + 1)
+    [byte[]]$buffer = [byte[]]::new($capacity)
+    $stream = $null; $readFailure = $null; $bytesRead = 0
+    try {
+        # FileShare.Read admits only other readers: writes, replacement, and
+        # deletion remain denied for the lifetime of this exact FileStream.
+        $stream = [IO.FileStream]::new($Path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read, 4096, [IO.FileOptions]::SequentialScan)
+        while ($bytesRead -lt $capacity) {
+            $requested = [Math]::Min(4096, $capacity - $bytesRead)
+            $read = [int]$stream.Read($buffer, $bytesRead, $requested)
+            if ($read -lt 0 -or $read -gt $requested) { throw "ADR reader returned invalid byte count '$read' for request '$requested'" }
+            if ($read -eq 0) { break }
+            $bytesRead += $read
+        }
+    } catch { $readFailure = $_.Exception }
+    if ($null -ne $readFailure) {
+        if ($null -ne $stream) { $stream.Dispose() }
+        Throw-LaneGateDenial "governance_exception_adr_read_failed" "ADR-0045 authority file could not be read through its leased handle" $readFailure.Message
+    }
+    if ($bytesRead -gt $LaneOrderMaxBytes) {
+        $stream.Dispose()
+        Throw-LaneGateDenial "governance_exception_adr_too_large" "ADR-0045 authority file exceeds the fixed $LaneOrderMaxBytes-byte ceiling" ([ordered]@{
+            max_bytes = $LaneOrderMaxBytes; observed_at_least_bytes = $bytesRead; allocated_bytes = $capacity
+        })
+    }
+    $digest = Get-Sha256Hex $buffer $bytesRead
+    if ($digest -cne $Adr0045DecisionSha256) {
+        $stream.Dispose()
+        Throw-LaneGateDenial "governance_exception_adr_digest_mismatch" "ADR-0045 authority file does not match its pinned digest" ([ordered]@{
+            expected = $Adr0045DecisionSha256; actual = $digest; path = $Path
+        })
+    }
+    return [pscustomobject]@{ path = $Path; stream = $stream; buffer = $buffer; count = $bytesRead; digest = $digest }
+}
+
+function New-Adr0045OneShotClaim {
+    param([string]$Path, [string]$MachineId, [string]$ManifestDigest, [string]$FactPath, [string]$DecisionDigest)
+    $claimFullPath = Get-AbsolutePath $Path
+    $claimParent = Split-Path -Parent $claimFullPath
+    try { $null = [IO.Directory]::CreateDirectory($claimParent) }
+    catch { Throw-LaneGateDenial "governance_exception_claim_state_unavailable" "ADR-0045 one-shot claim directory is unavailable" $_.Exception.Message }
+
+    $binding = [ordered]@{
+        schema = "raios.adr0045_h26_claim.v1"
+        token = $Adr0045ExceptionToken
+        machine = $MachineId
+        manifest_sha256 = $ManifestDigest
+        fact_path = $FactPath
+        adr_sha256 = $DecisionDigest
+    }
+    $bindingBytes = (New-Object Text.UTF8Encoding($false)).GetBytes(($binding | ConvertTo-Json -Depth 10 -Compress))
+    $claimStream = $null
+    try {
+        # CreateNew is the atomic authorization boundary. FileShare.Read keeps
+        # the completed binding observable while denying mutation/deletion.
+        $claimStream = [IO.FileStream]::new($claimFullPath, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::Read)
+    } catch [IO.IOException] {
+        if ([IO.File]::Exists($claimFullPath)) {
+            Throw-LaneGateDenial "governance_exception_already_consumed" "ADR-0045-H26 implementation dispatch has already been claimed" $claimFullPath
+        }
+        Throw-LaneGateDenial "governance_exception_claim_create_failed" "ADR-0045 one-shot claim could not be created atomically" $_.Exception.Message
+    } catch {
+        Throw-LaneGateDenial "governance_exception_claim_create_failed" "ADR-0045 one-shot claim could not be created atomically" $_.Exception.Message
+    }
+    try {
+        $claimStream.Write($bindingBytes, 0, $bindingBytes.Length)
+        $claimStream.Flush($true)
+    } catch {
+        $persistFailure = $_.Exception.Message
+        $claimStream.Dispose()
+        # Fail closed: CreateNew already won, so an incomplete claim is never
+        # removed or made reusable automatically.
+        Throw-LaneGateDenial "governance_exception_claim_persist_failed" "ADR-0045 one-shot claim binding could not be persisted; authorization remains consumed" $persistFailure
+    }
+    return [pscustomobject]@{ path = $claimFullPath; stream = $claimStream; binding = $binding }
+}
+
+function Assert-Adr0045GovernanceException {
+    param(
+        [string]$OrderText, [string]$MachineId, [string]$ActualManifestDigest, [string[]]$FactPaths,
+        [string]$DecisionPathOverride = ""
+    )
+    if ($MachineId -cne $Adr0045MachineId) {
+        Throw-LaneGateDenial "governance_exception_machine_mismatch" "ADR-0045-H26 is bound to machine '$Adr0045MachineId'" $MachineId
+    }
+    if ($ActualManifestDigest -cne $Adr0045ManifestSha256) {
+        Throw-LaneGateDenial "governance_exception_manifest_digest_mismatch" "ADR-0045-H26 is bound to the pinned Surface manifest digest" ([ordered]@{
+            expected = $Adr0045ManifestSha256; actual = $ActualManifestDigest
+        })
+    }
+    if (@($FactPaths).Count -ne 1 -or $FactPaths[0] -cne $Adr0045FactPath) {
+        Throw-LaneGateDenial "governance_exception_fact_paths_mismatch" "ADR-0045-H26 requires exactly its singleton fact path" ([ordered]@{
+            expected = @($Adr0045FactPath); actual = @($FactPaths)
+        })
+    }
+    if (-not (Test-TextContainsExactLine $OrderText $Adr0045OrderMarker)) {
+        Throw-LaneGateDenial "governance_exception_order_marker_missing" "Lane order lacks the exact ADR-0045-H26 governance marker line" $Adr0045OrderMarker
+    }
+    $decisionFullPath = if ($DecisionPathOverride) { Get-AbsolutePath $DecisionPathOverride } else {
+        Join-Path $LauncherRepoRoot $Adr0045DecisionRelativePath
+    }
+    if (-not [IO.File]::Exists($decisionFullPath)) {
+        Throw-LaneGateDenial "governance_exception_adr_not_found" "ADR-0045 authority file does not exist" $decisionFullPath
+    }
+    return Open-Adr0045AuthorityLease $decisionFullPath
+}
+
 function Invoke-CodexLaneGate {
     param(
         [string]$Order, [string]$MachineId, [string]$Digest, [string[]]$FactPaths,
         [string]$SandboxName, [string]$Report, [object]$Schema,
+        [string]$GovernanceException = "", [string]$Adr0045DecisionPathOverride = "", [string]$Adr0045ClaimPathOverride = "",
+        [AllowNull()][scriptblock]$Adr0045PreStartHook = $null,
         [string]$ManifestPathOverride = "", [string]$ChildCommand = "codex", [string[]]$ChildPrefixArguments = @(),
         [switch]$SimulateStdinWriteFailure, [switch]$SimulateStdinCloseFailure, [switch]$SimulateWaitFailure,
         [string]$PostStartReadyPath = "", [AllowNull()][scriptblock]$ReaderFactory = $null
     )
+    if ($GovernanceException -cne "" -and $GovernanceException -cne $Adr0045ExceptionToken) {
+        Throw-LaneGateDenial "governance_exception_invalid" "GovernanceException must be empty or exactly '$Adr0045ExceptionToken'" $GovernanceException
+    }
+    $useAdr0045Exception = $GovernanceException -ceq $Adr0045ExceptionToken
+    if (($Adr0045ClaimPathOverride -or $null -ne $Adr0045PreStartHook) -and -not $LauncherSelfTest) {
+        Throw-LaneGateDenial "governance_exception_selftest_hook_forbidden" "ADR-0045 claim overrides and pre-start hooks are available only inside launcher selftests"
+    }
     Assert-LaneGateInputs $Order $MachineId $Digest $FactPaths $SandboxName $Report
     $orderFullPath = Get-AbsolutePath $Order
     $reportFullPath = Get-AbsolutePath $Report
@@ -150,105 +289,161 @@ function Invoke-CodexLaneGate {
     if (-not $validation.valid) { Throw-LaneGateDenial "manifest_schema_invalid" "Machine manifest failed structural or semantic validation" $validation.errors }
     if ($validation.machine_id -cne $MachineId) { Throw-LaneGateDenial "machine_id_mismatch" "Manifest machine '$($validation.machine_id)' does not match expected '$MachineId'" }
     if ($actualDigest -cne $Digest.ToLowerInvariant()) { Throw-LaneGateDenial "manifest_digest_mismatch" "Manifest SHA-256 does not match the lane order" ([ordered]@{ expected = $Digest.ToLowerInvariant(); actual = $actualDigest }) }
-    if (-not $manifest.curated_context_ready) { Throw-LaneGateDenial "manifest_not_context_ready" "Manifest '$MachineId' is valid but not curated-context ready" $manifest.missing_required_facts }
-
-    $selectedFacts = @()
-    foreach ($path in $FactPaths) {
-        $fact = Resolve-MachineManifestFact $manifest $path
-        if (-not $fact.found) { Throw-LaneGateDenial "required_fact_path_unknown" "Required fact path '$path' does not exist" $path }
-        if ($fact.status -cne "observed") { Throw-LaneGateDenial "required_fact_unknown" "Required fact '$path' is not observed" $fact }
-        $selectedFacts += [ordered]@{ path = $path; status = $fact.status; value = $fact.value; provenance = $fact.provenance }
-    }
+    $adrLease = $null; $claimLease = $null; $process = $null; $processStarted = $false
     try {
-        $context = [ordered]@{
-            schema = "raios.machine_curated_context.v1"
-            machine_manifest = "$MachineId@sha256:$actualDigest"
-            required_fact_paths = @($FactPaths)
-            facts = @($selectedFacts)
+        if ($useAdr0045Exception) {
+            $adrLease = Assert-Adr0045GovernanceException $orderText $MachineId $actualDigest $FactPaths $Adr0045DecisionPathOverride
         }
-        $contextJson = $context | ConvertTo-Json -Depth 20 -Compress
-        $contextJson = $contextJson.Replace('<', '\u003c').Replace('>', '\u003e')
-        if ([string]::IsNullOrWhiteSpace($contextJson) -or $contextJson.Length -gt $MachineContextMaxChars) { throw "Rendered machine context exceeds the $MachineContextMaxChars-character bound" }
-        $prompt = $orderText.TrimEnd() + "`r`n`r`n<raios-machine-context>`r`n" + $contextJson + "`r`n</raios-machine-context>"
-    } catch {
-        if ($_.Exception.Data["reason"]) { throw }
-        Throw-LaneGateDenial "prompt_render_failed" "Bounded lane prompt could not be rendered" $_.Exception.Message
-    }
-    try { $resolvedChild = (Get-Command $ChildCommand -ErrorAction Stop).Source }
-    catch { Throw-LaneGateDenial "codex_command_missing" "Codex child command is unavailable" $ChildCommand }
+        if (-not $manifest.curated_context_ready -and -not $useAdr0045Exception) { Throw-LaneGateDenial "manifest_not_context_ready" "Manifest '$MachineId' is valid but not curated-context ready" $manifest.missing_required_facts }
 
-    $arguments = @($ChildPrefixArguments) + @("exec", "-s", $SandboxName, "-C", $LauncherRepoRoot, "--ephemeral", "-o", $reportFullPath, "-")
-    $startInfo = New-Object Diagnostics.ProcessStartInfo
-    $startInfo.FileName = $resolvedChild
-    $startInfo.Arguments = (@($arguments | ForEach-Object { ConvertTo-NativeArgument ([string]$_) }) -join " ")
-    $startInfo.UseShellExecute = $false
-    $startInfo.RedirectStandardInput = $true
-    $process = New-Object Diagnostics.Process
-    $process.StartInfo = $startInfo
-    try { $started = $process.Start() }
-    catch {
-        $startError = $_.Exception.Message
-        $process.Dispose()
-        Throw-LaneGateDenial "codex_child_start_failed" "Codex child process could not be started" $startError
-    }
-    if (-not $started) {
-        $process.Dispose()
-        Throw-LaneGateDenial "codex_child_start_failed" "Codex child process did not start"
-    }
-    $postStartReason = ""; $postStartMessage = ""; $postStartCause = ""; $childExitCode = $null
-    $terminationAttempted = $false; $childReaped = $false
-    $cleanupErrors = New-Object System.Collections.Generic.List[string]
-    try {
-        $promptBytes = (New-Object Text.UTF8Encoding($false)).GetBytes($prompt)
-        if (($SimulateStdinWriteFailure -or $SimulateStdinCloseFailure -or $SimulateWaitFailure) -and
-            -not [string]::IsNullOrWhiteSpace($PostStartReadyPath)) {
-            $readyDeadline = [DateTime]::UtcNow.AddSeconds(5)
-            while (-not [IO.File]::Exists($PostStartReadyPath) -and [DateTime]::UtcNow -lt $readyDeadline) { Start-Sleep -Milliseconds 10 }
-            if (-not [IO.File]::Exists($PostStartReadyPath)) { throw [IO.IOException]::new("Fake child did not publish its post-start sentinel") }
+        $selectedFacts = @()
+        foreach ($path in $FactPaths) {
+            $fact = if ($useAdr0045Exception -and $path -ceq $Adr0045FactPath) {
+                $identity = @($manifest.devices)[2].identity
+                [ordered]@{ found = ($null -ne $identity); path = $path; status = $identity.status; value = $identity.value; provenance = $identity.provenance }
+            } else { Resolve-MachineManifestFact $manifest $path }
+            if (-not $fact.found) { Throw-LaneGateDenial "required_fact_path_unknown" "Required fact path '$path' does not exist" $path }
+            if ($useAdr0045Exception -and $fact.status -cne "observed") {
+                Throw-LaneGateDenial "governance_exception_fact_status_mismatch" "ADR-0045-H26 requires an observed fact" $fact
+            }
+            if ($fact.status -cne "observed") { Throw-LaneGateDenial "required_fact_unknown" "Required fact '$path' is not observed" $fact }
+            if ($useAdr0045Exception -and (-not ($fact.value -is [string]) -or $fact.value -cne $Adr0045FactValue)) {
+                Throw-LaneGateDenial "governance_exception_fact_value_mismatch" "ADR-0045-H26 requires the pinned Marvell identity" $fact
+            }
+            $selectedFacts += [ordered]@{ path = $path; status = $fact.status; value = $fact.value; provenance = $fact.provenance }
         }
         try {
-            if ($SimulateStdinWriteFailure) {
-                throw [IO.IOException]::new("Simulated stdin write failure after child start")
+            $context = [ordered]@{
+                schema = "raios.machine_curated_context.v1"
+                machine_manifest = "$MachineId@sha256:$actualDigest"
+                required_fact_paths = @($FactPaths)
+                facts = @($selectedFacts)
             }
-            $process.StandardInput.BaseStream.Write($promptBytes, 0, $promptBytes.Length)
+            if ($useAdr0045Exception) {
+                $context["governance_exception"] = $Adr0045ExceptionToken
+                $context["governance_exception_adr_sha256"] = $adrLease.digest
+            }
+            $contextJson = $context | ConvertTo-Json -Depth 20 -Compress
+            $contextJson = $contextJson.Replace('<', '\u003c').Replace('>', '\u003e')
+            if ([string]::IsNullOrWhiteSpace($contextJson) -or $contextJson.Length -gt $MachineContextMaxChars) { throw "Rendered machine context exceeds the $MachineContextMaxChars-character bound" }
+            $prompt = $orderText.TrimEnd() + "`r`n`r`n<raios-machine-context>`r`n" + $contextJson + "`r`n</raios-machine-context>"
         } catch {
-            $postStartReason = "codex_child_stdin_write_failed"; $postStartMessage = "Codex child stdin write failed after process start"; $postStartCause = $_.Exception.Message
+            if ($_.Exception.Data["reason"]) { throw }
+            Throw-LaneGateDenial "prompt_render_failed" "Bounded lane prompt could not be rendered" $_.Exception.Message
         }
-        if (-not $postStartReason) {
-            try {
-                if ($SimulateStdinCloseFailure) { throw [IO.IOException]::new("Simulated stdin close failure after child start") }
-                $process.StandardInput.Close()
+        try { $resolvedChild = (Get-Command $ChildCommand -ErrorAction Stop).Source }
+        catch { Throw-LaneGateDenial "codex_command_missing" "Codex child command is unavailable" $ChildCommand }
+
+        $arguments = @($ChildPrefixArguments) + @("exec", "-s", $SandboxName, "-C", $LauncherRepoRoot, "--ephemeral", "-o", $reportFullPath, "-")
+        $startInfo = New-Object Diagnostics.ProcessStartInfo
+        $startInfo.FileName = $resolvedChild
+        $startInfo.Arguments = (@($arguments | ForEach-Object { ConvertTo-NativeArgument ([string]$_) }) -join " ")
+        $startInfo.UseShellExecute = $false
+        $startInfo.RedirectStandardInput = $true
+        $process = New-Object Diagnostics.Process
+        $process.StartInfo = $startInfo
+
+        $startFailureMessage = if ($useAdr0045Exception) {
+            "Codex child process could not be started; ADR-0045 claim remains consumed"
+        } else { "Codex child process could not be started" }
+        $startFalseMessage = if ($useAdr0045Exception) {
+            "Codex child process did not start; ADR-0045 claim remains consumed"
+        } else { "Codex child process did not start" }
+        if ($useAdr0045Exception) {
+            $claimCandidatePath = if ($Adr0045ClaimPathOverride) { $Adr0045ClaimPathOverride } else { Join-Path $LauncherRepoRoot $Adr0045ClaimRelativePath }
+            $claimFullPath = Get-AbsolutePath $claimCandidatePath
+            $claimConflicts = @($orderFullPath, $manifestFullPath, $reportFullPath, $adrLease.path) | Where-Object {
+                [string]::Equals($_, $claimFullPath, [StringComparison]::OrdinalIgnoreCase)
             }
-            catch { $postStartReason = "codex_child_stdin_close_failed"; $postStartMessage = "Codex child stdin close failed after process start"; $postStartCause = $_.Exception.Message }
-        }
-        if (-not $postStartReason) {
-            try {
-                if ($SimulateWaitFailure) { throw [IO.IOException]::new("Simulated wait failure after child start") }
-                $process.WaitForExit(); $childExitCode = $process.ExitCode
+            if (@($claimConflicts).Count -gt 0) {
+                Throw-LaneGateDenial "governance_exception_claim_path_conflict" "ADR-0045 claim path conflicts with a dispatch input or output" $claimFullPath
             }
-            catch { $postStartReason = "codex_child_wait_failed"; $postStartMessage = "Codex child wait failed after process start"; $postStartCause = $_.Exception.Message }
+            if ($null -ne $Adr0045PreStartHook) {
+                $hookState = [pscustomobject]@{
+                    authority_path = $adrLease.path
+                    authority_sha256 = $adrLease.digest
+                    authority_bytes_base64 = [Convert]::ToBase64String($adrLease.buffer, 0, $adrLease.count)
+                    prompt = $prompt
+                    claim_path = $claimFullPath
+                }
+                try { $null = & $Adr0045PreStartHook $hookState }
+                catch { Throw-LaneGateDenial "governance_exception_prestart_hook_failed" "ADR-0045 selftest pre-start hook failed" $_.Exception.Message }
+            }
+            $claimLease = New-Adr0045OneShotClaim $claimFullPath $MachineId $actualDigest $FactPaths[0] $adrLease.digest
         }
-    } catch {
-        if (-not $postStartReason) {
-            $postStartReason = "codex_child_post_start_failed"; $postStartMessage = "Codex child dispatch failed after process start"; $postStartCause = $_.Exception.Message
+
+        # Nothing that can widen or revalidate authority occurs between the
+        # atomic one-shot claim and Process.Start.
+        try { $started = $process.Start() }
+        catch { Throw-LaneGateDenial "codex_child_start_failed" $startFailureMessage $_.Exception.Message }
+        if (-not $started) { Throw-LaneGateDenial "codex_child_start_failed" $startFalseMessage }
+        $processStarted = $true
+
+        $postStartReason = ""; $postStartMessage = ""; $postStartCause = ""; $childExitCode = $null
+        $terminationAttempted = $false; $childReaped = $false
+        $cleanupErrors = New-Object System.Collections.Generic.List[string]
+        try {
+            $promptBytes = (New-Object Text.UTF8Encoding($false)).GetBytes($prompt)
+            if (($SimulateStdinWriteFailure -or $SimulateStdinCloseFailure -or $SimulateWaitFailure) -and
+                -not [string]::IsNullOrWhiteSpace($PostStartReadyPath)) {
+                $readyDeadline = [DateTime]::UtcNow.AddSeconds(5)
+                while (-not [IO.File]::Exists($PostStartReadyPath) -and [DateTime]::UtcNow -lt $readyDeadline) { Start-Sleep -Milliseconds 10 }
+                if (-not [IO.File]::Exists($PostStartReadyPath)) { throw [IO.IOException]::new("Fake child did not publish its post-start sentinel") }
+            }
+            try {
+                if ($SimulateStdinWriteFailure) {
+                    throw [IO.IOException]::new("Simulated stdin write failure after child start")
+                }
+                $process.StandardInput.BaseStream.Write($promptBytes, 0, $promptBytes.Length)
+            } catch {
+                $postStartReason = "codex_child_stdin_write_failed"; $postStartMessage = "Codex child stdin write failed after process start"; $postStartCause = $_.Exception.Message
+            }
+            if (-not $postStartReason) {
+                try {
+                    if ($SimulateStdinCloseFailure) { throw [IO.IOException]::new("Simulated stdin close failure after child start") }
+                    $process.StandardInput.Close()
+                }
+                catch { $postStartReason = "codex_child_stdin_close_failed"; $postStartMessage = "Codex child stdin close failed after process start"; $postStartCause = $_.Exception.Message }
+            }
+            if (-not $postStartReason) {
+                try {
+                    if ($SimulateWaitFailure) { throw [IO.IOException]::new("Simulated wait failure after child start") }
+                    $process.WaitForExit(); $childExitCode = $process.ExitCode
+                }
+                catch { $postStartReason = "codex_child_wait_failed"; $postStartMessage = "Codex child wait failed after process start"; $postStartCause = $_.Exception.Message }
+            }
+        } catch {
+            if (-not $postStartReason) {
+                $postStartReason = "codex_child_post_start_failed"; $postStartMessage = "Codex child dispatch failed after process start"; $postStartCause = $_.Exception.Message
+            }
+        } finally {
+            if ($postStartReason) {
+                try {
+                    if (-not $process.HasExited) { $terminationAttempted = $true; $process.Kill() }
+                } catch { $cleanupErrors.Add("terminate: $($_.Exception.Message)") }
+            }
+            try { $process.WaitForExit(); $childReaped = $process.HasExited }
+            catch { $cleanupErrors.Add("reap: $($_.Exception.Message)") }
+            try { $process.Dispose() }
+            catch { $cleanupErrors.Add("dispose: $($_.Exception.Message)") }
         }
-    } finally {
         if ($postStartReason) {
-            try {
-                if (-not $process.HasExited) { $terminationAttempted = $true; $process.Kill() }
-            } catch { $cleanupErrors.Add("terminate: $($_.Exception.Message)") }
+            $details = [ordered]@{ cause = $postStartCause; termination_attempted = $terminationAttempted; child_reaped = $childReaped; cleanup_errors = [object[]]$cleanupErrors }
+            Throw-LaneGateDenial $postStartReason $postStartMessage $details $true
         }
-        try { $process.WaitForExit(); $childReaped = $process.HasExited }
-        catch { $cleanupErrors.Add("reap: $($_.Exception.Message)") }
-        try { $process.Dispose() }
-        catch { $cleanupErrors.Add("dispose: $($_.Exception.Message)") }
+        return [ordered]@{ schema = "raios.codex_lane_dispatch.v1"; accepted = ($childExitCode -eq 0); child_started = $true;
+            child_exit_code = [int]$childExitCode; machine_manifest = "$MachineId@sha256:$actualDigest"; report_path = $reportFullPath }
+    } finally {
+        try {
+            if ($null -ne $process -and -not $processStarted) { $process.Dispose() }
+        } finally {
+            try {
+                if ($null -ne $claimLease) { $claimLease.stream.Dispose() }
+            } finally {
+                if ($null -ne $adrLease) { $adrLease.stream.Dispose() }
+            }
+        }
     }
-    if ($postStartReason) {
-        $details = [ordered]@{ cause = $postStartCause; termination_attempted = $terminationAttempted; child_reaped = $childReaped; cleanup_errors = [object[]]$cleanupErrors }
-        Throw-LaneGateDenial $postStartReason $postStartMessage $details $true
-    }
-    return [ordered]@{ schema = "raios.codex_lane_dispatch.v1"; accepted = ($childExitCode -eq 0); child_started = $true;
-        child_exit_code = [int]$childExitCode; machine_manifest = "$MachineId@sha256:$actualDigest"; report_path = $reportFullPath }
 }
 
 function Invoke-CodexLaneSelfTests {
@@ -323,12 +518,47 @@ public sealed class DeterministicGrowingReadStream : Stream {
     public override void SetLength(long value) { throw new NotSupportedException(); }
     public override void Write(byte[] buffer, int offset, int count) { throw new NotSupportedException(); }
 }
+public sealed class Adr0045ClaimRaceResult {
+    public int WinnerCount;
+    public string[] UnexpectedErrors;
+}
+public static class Adr0045AtomicClaimRace {
+    public static Adr0045ClaimRaceResult Run(string path, byte[] binding) {
+        var start = new System.Threading.ManualResetEventSlim(false);
+        var errors = new string[2];
+        int winners = 0;
+        System.Threading.Thread[] threads = new System.Threading.Thread[2];
+        for (int i = 0; i < threads.Length; i++) {
+            int slot = i;
+            threads[i] = new System.Threading.Thread(() => {
+                start.Wait();
+                try {
+                    using (var stream = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.Read)) {
+                        stream.Write(binding, 0, binding.Length);
+                        stream.Flush(true);
+                        System.Threading.Interlocked.Increment(ref winners);
+                    }
+                } catch (IOException) {
+                    // The losing CreateNew is the expected outcome.
+                } catch (Exception ex) {
+                    errors[slot] = ex.GetType().FullName + ": " + ex.Message;
+                }
+            });
+            threads[i].Start();
+        }
+        start.Set();
+        foreach (var thread in threads) thread.Join();
+        return new Adr0045ClaimRaceResult { WinnerCount = winners, UnexpectedErrors = errors };
+    }
+}
 '@
         Add-Type -TypeDefinition $growingReaderSource -Language CSharp
         $env:RAIOS_FAKE_CHILD_COUNT = $countPath; $env:RAIOS_FAKE_CHILD_ARGS = $argsPath; $env:RAIOS_FAKE_CHILD_PROMPT = $promptPath
         $qemuPath = Join-Path $LauncherRepoRoot "hardware\manifests\qemu-q35-shadow.v1.json"
         $surfacePath = Join-Path $LauncherRepoRoot "hardware\manifests\surface-pro-4.v1.json"
         $qemu = Get-Content -Raw -LiteralPath $qemuPath | ConvertFrom-Json
+        $surface = Get-Content -Raw -LiteralPath $surfacePath | ConvertFrom-Json
+        $exceptionOrderContent = $orderContent + [Environment]::NewLine + $Adr0045OrderMarker
         $cases = New-Object System.Collections.Generic.List[object]
         function Reset-Sentinel { Remove-Item -LiteralPath $countPath, $argsPath, $promptPath -Force -ErrorAction SilentlyContinue }
         function Get-InvocationCount { if (Test-Path -LiteralPath $countPath) { return [int](Get-Content -Raw -LiteralPath $countPath) }; return 0 }
@@ -382,6 +612,177 @@ public sealed class DeterministicGrowingReadStream : Stream {
         Run-Denial "wrong-machine" { Invoke-CodexLaneGate $order "qemu-q35-shadow" $surfaceDigest $required "workspace-write" $report $Schema -ManifestPathOverride $surfacePath -ChildCommand $fake } "machine_id_mismatch"
         Run-Denial "digest-drift" { Invoke-CodexLaneGate $order "qemu-q35-shadow" ("0" * 64) $required "workspace-write" $report $Schema -ManifestPathOverride $qemuPath -ChildCommand $fake } "manifest_digest_mismatch"
         Run-Denial "surface-not-ready" { Invoke-CodexLaneGate $order "surface-pro-4" $surfaceDigest @("/cpu/model") "read-only" $report $Schema -ManifestPathOverride $surfacePath -ChildCommand $fake } "manifest_not_context_ready"
+
+        $exceptionFactPaths = @($Adr0045FactPath)
+        $authoritySourcePath = Join-Path $LauncherRepoRoot $Adr0045DecisionRelativePath
+        $authorityBytes = [IO.File]::ReadAllBytes($authoritySourcePath)
+        $exceptionAdrPath = Join-Path $tempRoot "adr0045-authority.md"
+        $exceptionClaimPath = Join-Path $tempRoot "adr0045-positive.claim"
+        [IO.File]::WriteAllBytes($exceptionAdrPath, $authorityBytes)
+        [IO.File]::WriteAllText($order, $exceptionOrderContent, (New-Object Text.UTF8Encoding($false)))
+        Reset-Sentinel
+        $exceptionDispatch = Invoke-CodexLaneGate $order $Adr0045MachineId $surfaceDigest $exceptionFactPaths "workspace-write" $report $Schema `
+            -GovernanceException $Adr0045ExceptionToken -Adr0045DecisionPathOverride $exceptionAdrPath -Adr0045ClaimPathOverride $exceptionClaimPath `
+            -ManifestPathOverride $surfacePath -ChildCommand $fake
+        $exceptionArgs = [IO.File]::ReadAllLines($argsPath); $exceptionPrompt = Get-Content -Raw -LiteralPath $promptPath
+        $exceptionMatch = [regex]::Match($exceptionPrompt, '(?s)<raios-machine-context>\r?\n(.+?)\r?\n</raios-machine-context>')
+        $exceptionContext = if ($exceptionMatch.Success) { $exceptionMatch.Groups[1].Value | ConvertFrom-Json } else { $null }
+        $exceptionClaim = if ([IO.File]::Exists($exceptionClaimPath)) { Get-Content -Raw -LiteralPath $exceptionClaimPath | ConvertFrom-Json } else { $null }
+        $exceptionIdentity = @($surface.devices)[2].identity
+        $exceptionSelectedFact = [ordered]@{ status = $exceptionIdentity.status; value = $exceptionIdentity.value; provenance = $exceptionIdentity.provenance }
+        $expectedExceptionContext = [ordered]@{
+            schema = "raios.machine_curated_context.v1"
+            machine_manifest = "$Adr0045MachineId@sha256:$Adr0045ManifestSha256"
+            required_fact_paths = @($Adr0045FactPath)
+            facts = @([ordered]@{ path = $Adr0045FactPath; status = $exceptionSelectedFact.status; value = $exceptionSelectedFact.value; provenance = $exceptionSelectedFact.provenance })
+        }
+        $expectedExceptionContext["governance_exception"] = $Adr0045ExceptionToken
+        $expectedExceptionContext["governance_exception_adr_sha256"] = $Adr0045DecisionSha256
+        $expectedExceptionJson = ($expectedExceptionContext | ConvertTo-Json -Depth 20 -Compress).Replace('<', '\u003c').Replace('>', '\u003e')
+        $crlf = [string][char]13 + [string][char]10
+        $expectedExceptionPrompt = $exceptionOrderContent.TrimEnd() + $crlf + $crlf + "<raios-machine-context>" + $crlf + $expectedExceptionJson + $crlf + "</raios-machine-context>"
+        $expectedExceptionArgs = @("exec", "-s", "workspace-write", "-C", $LauncherRepoRoot, "--ephemeral", "-o", ([IO.Path]::GetFullPath($report)), "-")
+        $exceptionArgsExact = (@($exceptionArgs) -join [char]0) -ceq ($expectedExceptionArgs -join [char]0)
+        $exceptionPromptExact = $exceptionPrompt -ceq $expectedExceptionPrompt
+        $exceptionForbiddenFacts = @($exceptionContext.facts | Where-Object { $_.path -like "/cpu/*" -or $_.path -like "/memory/*" }).Count
+        $exceptionClaimExact = $null -ne $exceptionClaim -and $exceptionClaim.schema -ceq "raios.adr0045_h26_claim.v1" -and
+            $exceptionClaim.token -ceq $Adr0045ExceptionToken -and $exceptionClaim.machine -ceq $Adr0045MachineId -and
+            $exceptionClaim.manifest_sha256 -ceq $Adr0045ManifestSha256 -and $exceptionClaim.fact_path -ceq $Adr0045FactPath -and
+            $exceptionClaim.adr_sha256 -ceq $Adr0045DecisionSha256
+        $exceptionPositivePassed = $surfaceDigest -ceq $Adr0045ManifestSha256 -and (Get-InvocationCount) -eq 1 -and
+            $exceptionDispatch.child_started -and $exceptionArgsExact -and $exceptionPromptExact -and $exceptionMatch.Success -and
+            $exceptionContext.governance_exception -ceq $Adr0045ExceptionToken -and
+            $exceptionContext.governance_exception_adr_sha256 -ceq $Adr0045DecisionSha256 -and $exceptionClaimExact -and
+            @($exceptionContext.required_fact_paths).Count -eq 1 -and $exceptionContext.required_fact_paths[0] -ceq $Adr0045FactPath -and
+            @($exceptionContext.facts).Count -eq 1 -and $exceptionContext.facts[0].status -ceq "observed" -and
+            $exceptionContext.facts[0].value -ceq $Adr0045FactValue -and $exceptionForbiddenFacts -eq 0
+        $cases.Add([ordered]@{ name = "adr0045-exact-positive-one-fake-child"; expected_reason = "accepted";
+            actual_reason = if ($exceptionPositivePassed) { "accepted" } else { "positive_assertion_failed" };
+            child_started = $exceptionDispatch.child_started; child_invocation_count = Get-InvocationCount; passed = $exceptionPositivePassed;
+            detail_codes = @("manifest=$surfaceDigest", "argv_exact=$exceptionArgsExact", "stdin_exact=$exceptionPromptExact",
+                "exception=$($exceptionContext.governance_exception)", "adr_digest=$($exceptionContext.governance_exception_adr_sha256)",
+                "claim_binding_exact=$exceptionClaimExact", "fact_count=$(@($exceptionContext.facts).Count)", "forbidden_fact_count=$exceptionForbiddenFacts") })
+
+        $replayBefore = Get-InvocationCount; $replayReason = "accepted"; $replayChildStarted = $false
+        try {
+            $null = Invoke-CodexLaneGate $order $Adr0045MachineId $surfaceDigest $exceptionFactPaths "workspace-write" $report $Schema `
+                -GovernanceException $Adr0045ExceptionToken -Adr0045DecisionPathOverride $exceptionAdrPath -Adr0045ClaimPathOverride $exceptionClaimPath `
+                -ManifestPathOverride $surfacePath -ChildCommand $fake
+        } catch {
+            $replayReason = [string]$_.Exception.Data["reason"]
+            $replayChildStarted = [bool]$_.Exception.Data["child_started"]
+        }
+        $replayAfter = Get-InvocationCount
+        $replayPassed = $replayReason -ceq "governance_exception_already_consumed" -and -not $replayChildStarted -and
+            $replayBefore -eq 1 -and $replayAfter -eq $replayBefore
+        $cases.Add([ordered]@{ name = "adr0045-second-identical-dispatch-denied"; expected_reason = "governance_exception_already_consumed";
+            actual_reason = $replayReason; child_started = $replayChildStarted; child_invocation_count = $replayAfter; passed = $replayPassed;
+            detail_codes = @("before=$replayBefore", "after=$replayAfter", "additional=$($replayAfter - $replayBefore)") })
+
+        Reset-Sentinel
+        $raceClaimPath = Join-Path $tempRoot "adr0045-race.claim"
+        $claimBindingBytes = [IO.File]::ReadAllBytes($exceptionClaimPath)
+        $raceResult = [Adr0045AtomicClaimRace]::Run($raceClaimPath, $claimBindingBytes)
+        $raceUnexpectedErrors = @($raceResult.UnexpectedErrors | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+        $raceContentExact = [IO.File]::Exists($raceClaimPath) -and
+            [Convert]::ToBase64String([IO.File]::ReadAllBytes($raceClaimPath)) -ceq [Convert]::ToBase64String($claimBindingBytes)
+        $racePassed = $raceResult.WinnerCount -eq 1 -and $raceUnexpectedErrors.Count -eq 0 -and $raceContentExact -and (Get-InvocationCount) -eq 0
+        $cases.Add([ordered]@{ name = "adr0045-create-new-race-single-winner"; expected_reason = "one_atomic_winner";
+            actual_reason = if ($racePassed) { "one_atomic_winner" } else { "claim_race_assertion_failed" };
+            child_started = $false; child_invocation_count = Get-InvocationCount; passed = $racePassed;
+            detail_codes = @("winners=$($raceResult.WinnerCount)", "content_exact=$raceContentExact") + $raceUnexpectedErrors })
+
+        Reset-Sentinel
+        $leaseAdrPath = Join-Path $tempRoot "adr0045-leased-authority.md"
+        $leaseClaimPath = Join-Path $tempRoot "adr0045-lease.claim"
+        $leaseReplacementPath = Join-Path $tempRoot "adr0045-replacement.md"
+        $leaseBackupPath = Join-Path $tempRoot "adr0045-replaced-backup.md"
+        [IO.File]::WriteAllBytes($leaseAdrPath, $authorityBytes)
+        [IO.File]::WriteAllText($leaseReplacementPath, "# revoked authority", (New-Object Text.UTF8Encoding($false)))
+        $hookObservation = [pscustomobject]@{ calls = 0; replace_attempted = $false; replace_failed = $false; replace_error = "";
+            delete_attempted = $false; delete_failed = $false; delete_error = ""; snapshot_digest = ""; prompt_exact = $false }
+        $preStartMutationHook = {
+            param($state)
+            $hookObservation.calls++
+            $hookObservation.snapshot_digest = Get-Sha256Hex ([Convert]::FromBase64String($state.authority_bytes_base64))
+            $hookObservation.prompt_exact = $state.authority_sha256 -ceq $Adr0045DecisionSha256 -and $state.prompt -ceq $expectedExceptionPrompt
+            $hookObservation.replace_attempted = $true
+            try { [IO.File]::Replace($leaseReplacementPath, $state.authority_path, $leaseBackupPath) }
+            catch { $hookObservation.replace_failed = $true; $hookObservation.replace_error = $_.Exception.GetType().Name }
+            $hookObservation.delete_attempted = $true
+            try { [IO.File]::Delete($state.authority_path) }
+            catch { $hookObservation.delete_failed = $true; $hookObservation.delete_error = $_.Exception.GetType().Name }
+        }.GetNewClosure()
+        $leaseDispatch = Invoke-CodexLaneGate $order $Adr0045MachineId $surfaceDigest $exceptionFactPaths "workspace-write" $report $Schema `
+            -GovernanceException $Adr0045ExceptionToken -Adr0045DecisionPathOverride $leaseAdrPath -Adr0045ClaimPathOverride $leaseClaimPath `
+            -Adr0045PreStartHook $preStartMutationHook -ManifestPathOverride $surfacePath -ChildCommand $fake
+        $leasePrompt = Get-Content -Raw -LiteralPath $promptPath
+        $leaseAuthorityExact = [IO.File]::Exists($leaseAdrPath) -and (Get-TestFileDigest $leaseAdrPath) -ceq $Adr0045DecisionSha256
+        $leasePassed = $leaseDispatch.child_started -and (Get-InvocationCount) -eq 1 -and $hookObservation.calls -eq 1 -and
+            $hookObservation.replace_attempted -and $hookObservation.replace_failed -and
+            $hookObservation.delete_attempted -and $hookObservation.delete_failed -and
+            $hookObservation.snapshot_digest -ceq $Adr0045DecisionSha256 -and $hookObservation.prompt_exact -and
+            $leaseAuthorityExact -and $leasePrompt -ceq $expectedExceptionPrompt
+        $cases.Add([ordered]@{ name = "adr0045-prestart-lease-blocks-replace-delete"; expected_reason = "accepted_with_mutation_denied";
+            actual_reason = if ($leasePassed) { "accepted_with_mutation_denied" } else { "lease_assertion_failed" };
+            child_started = $leaseDispatch.child_started; child_invocation_count = Get-InvocationCount; passed = $leasePassed;
+            detail_codes = @("replace_failed=$($hookObservation.replace_failed):$($hookObservation.replace_error)",
+                "delete_failed=$($hookObservation.delete_failed):$($hookObservation.delete_error)",
+                "snapshot_digest=$($hookObservation.snapshot_digest)", "authority_exact=$leaseAuthorityExact",
+                "prompt_exact=$($hookObservation.prompt_exact -and $leasePrompt -ceq $expectedExceptionPrompt)") })
+
+        $exceptionNegativeClaimPath = Join-Path $tempRoot "adr0045-negative.claim"
+        Run-Denial "adr0045-explicit-empty-token-stays-not-ready" {
+            Invoke-CodexLaneGate $order $Adr0045MachineId $surfaceDigest $exceptionFactPaths "workspace-write" $report $Schema -GovernanceException "" -Adr0045ClaimPathOverride $exceptionNegativeClaimPath -ManifestPathOverride $surfacePath -ChildCommand $fake
+        } "manifest_not_context_ready"
+        Run-Denial "adr0045-wrong-token" {
+            Invoke-CodexLaneGate $order $Adr0045MachineId $surfaceDigest $exceptionFactPaths "workspace-write" $report $Schema -GovernanceException "ADR-0045-H25" -Adr0045ClaimPathOverride $exceptionNegativeClaimPath -ManifestPathOverride $surfacePath -ChildCommand $fake
+        } "governance_exception_invalid"
+        Run-Denial "adr0045-wrong-machine" {
+            Invoke-CodexLaneGate $order "qemu-q35-shadow" $qemuDigest $exceptionFactPaths "workspace-write" $report $Schema -GovernanceException $Adr0045ExceptionToken -Adr0045DecisionPathOverride $exceptionAdrPath -Adr0045ClaimPathOverride $exceptionNegativeClaimPath -ManifestPathOverride $qemuPath -ChildCommand $fake
+        } "governance_exception_machine_mismatch"
+        Run-Denial "adr0045-wrong-manifest-digest" {
+            Invoke-CodexLaneGate $order $Adr0045MachineId ("0" * 64) $exceptionFactPaths "workspace-write" $report $Schema -GovernanceException $Adr0045ExceptionToken -Adr0045DecisionPathOverride $exceptionAdrPath -Adr0045ClaimPathOverride $exceptionNegativeClaimPath -ManifestPathOverride $surfacePath -ChildCommand $fake
+        } "manifest_digest_mismatch"
+        Run-Denial "adr0045-wrong-fact-path" {
+            Invoke-CodexLaneGate $order $Adr0045MachineId $surfaceDigest @("/cpu/model") "workspace-write" $report $Schema -GovernanceException $Adr0045ExceptionToken -Adr0045DecisionPathOverride $exceptionAdrPath -Adr0045ClaimPathOverride $exceptionNegativeClaimPath -ManifestPathOverride $surfacePath -ChildCommand $fake
+        } "governance_exception_fact_paths_mismatch"
+        Run-Denial "adr0045-additional-fact-path" {
+            Invoke-CodexLaneGate $order $Adr0045MachineId $surfaceDigest @($Adr0045FactPath, "/cpu/model") "workspace-write" $report $Schema -GovernanceException $Adr0045ExceptionToken -Adr0045DecisionPathOverride $exceptionAdrPath -Adr0045ClaimPathOverride $exceptionNegativeClaimPath -ManifestPathOverride $surfacePath -ChildCommand $fake
+        } "governance_exception_fact_paths_mismatch"
+
+        $m = Copy-JsonObject $surface; ($m.devices | Where-Object { $_.id -ceq "wifi" }).identity.value = "Marvell 88W8898"
+        $path = Write-Mutant "adr0045-wrong-fact-value" $m; $digest = Get-TestFileDigest $path
+        Run-Denial "adr0045-wrong-fact-value" {
+            Invoke-CodexLaneGate $order $Adr0045MachineId $digest $exceptionFactPaths "workspace-write" $report $Schema -GovernanceException $Adr0045ExceptionToken -Adr0045DecisionPathOverride $exceptionAdrPath -Adr0045ClaimPathOverride $exceptionNegativeClaimPath -ManifestPathOverride $path -ChildCommand $fake
+        } "governance_exception_manifest_digest_mismatch"
+        $m = Copy-JsonObject $surface; $wifiIdentity = ($m.devices | Where-Object { $_.id -ceq "wifi" }).identity; $wifiIdentity.status = "unknown"; $wifiIdentity.value = $null
+        $path = Write-Mutant "adr0045-wrong-fact-status" $m; $digest = Get-TestFileDigest $path
+        Run-Denial "adr0045-wrong-fact-status" {
+            Invoke-CodexLaneGate $order $Adr0045MachineId $digest $exceptionFactPaths "workspace-write" $report $Schema -GovernanceException $Adr0045ExceptionToken -Adr0045DecisionPathOverride $exceptionAdrPath -Adr0045ClaimPathOverride $exceptionNegativeClaimPath -ManifestPathOverride $path -ChildCommand $fake
+        } "manifest_schema_invalid" "missing_fact_not_declared"
+
+        [IO.File]::WriteAllText($order, $orderContent, (New-Object Text.UTF8Encoding($false)))
+        Run-Denial "adr0045-missing-order-marker" {
+            Invoke-CodexLaneGate $order $Adr0045MachineId $surfaceDigest $exceptionFactPaths "workspace-write" $report $Schema -GovernanceException $Adr0045ExceptionToken -Adr0045DecisionPathOverride $exceptionAdrPath -Adr0045ClaimPathOverride $exceptionNegativeClaimPath -ManifestPathOverride $surfacePath -ChildCommand $fake
+        } "governance_exception_order_marker_missing"
+        [IO.File]::WriteAllText($order, ($orderContent + [Environment]::NewLine + "Governance exception: ADR-0045-H25"), (New-Object Text.UTF8Encoding($false)))
+        Run-Denial "adr0045-wrong-order-marker" {
+            Invoke-CodexLaneGate $order $Adr0045MachineId $surfaceDigest $exceptionFactPaths "workspace-write" $report $Schema -GovernanceException $Adr0045ExceptionToken -Adr0045DecisionPathOverride $exceptionAdrPath -Adr0045ClaimPathOverride $exceptionNegativeClaimPath -ManifestPathOverride $surfacePath -ChildCommand $fake
+        } "governance_exception_order_marker_missing"
+
+        [IO.File]::WriteAllText($order, $exceptionOrderContent, (New-Object Text.UTF8Encoding($false)))
+        $missingAdrPath = Join-Path $tempRoot "missing-adr0045.md"
+        Run-Denial "adr0045-missing-adr-file" {
+            Invoke-CodexLaneGate $order $Adr0045MachineId $surfaceDigest $exceptionFactPaths "workspace-write" $report $Schema -GovernanceException $Adr0045ExceptionToken -Adr0045DecisionPathOverride $missingAdrPath -Adr0045ClaimPathOverride $exceptionNegativeClaimPath -ManifestPathOverride $surfacePath -ChildCommand $fake
+        } "governance_exception_adr_not_found"
+        $changedAdrPath = Join-Path $tempRoot "changed-adr0045.md"
+        [IO.File]::WriteAllText($changedAdrPath, "# changed authority", (New-Object Text.UTF8Encoding($false)))
+        Run-Denial "adr0045-changed-adr-file" {
+            Invoke-CodexLaneGate $order $Adr0045MachineId $surfaceDigest $exceptionFactPaths "workspace-write" $report $Schema -GovernanceException $Adr0045ExceptionToken -Adr0045DecisionPathOverride $changedAdrPath -Adr0045ClaimPathOverride $exceptionNegativeClaimPath -ManifestPathOverride $surfacePath -ChildCommand $fake
+        } "governance_exception_adr_digest_mismatch"
+        [IO.File]::WriteAllText($order, $orderContent, (New-Object Text.UTF8Encoding($false)))
+
         Run-Denial "required-fact-path-missing" { Invoke-CodexLaneGate $order "qemu-q35-shadow" $qemuDigest @("/devices/not-present/identity") "read-only" $report $Schema -ManifestPathOverride $qemuPath -ChildCommand $fake } "required_fact_path_unknown"
         Run-Denial "required-fact-pointer-case" { Invoke-CodexLaneGate $order "qemu-q35-shadow" $qemuDigest @("/CPU/model") "read-only" $report $Schema -ManifestPathOverride $qemuPath -ChildCommand $fake } "required_fact_path_unknown"
         Run-Denial "required-fact-unknown" { Invoke-CodexLaneGate $order "qemu-q35-shadow" $qemuDigest @("/devices/q35/bdf") "read-only" $report $Schema -ManifestPathOverride $qemuPath -ChildCommand $fake } "required_fact_unknown"
@@ -489,7 +890,7 @@ try {
         $result | ConvertTo-Json -Depth 50
         if (-not $result.passed) { exit 1 }; exit 0
     }
-    $result = Invoke-CodexLaneGate $OrderPath $ExpectedMachineId $ExpectedManifestSha256 $RequiredFactPath $Sandbox $ReportPath $launcherSchema
+    $result = Invoke-CodexLaneGate $OrderPath $ExpectedMachineId $ExpectedManifestSha256 $RequiredFactPath $Sandbox $ReportPath $launcherSchema -GovernanceException $GovernanceException
     $result | ConvertTo-Json -Depth 20
     exit [int]$result.child_exit_code
 } catch {
