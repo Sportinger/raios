@@ -67,6 +67,20 @@ class RecoveryPlan(NamedTuple):
     delta_sha256: str
 
 
+class RecoveryTarget(NamedTuple):
+    service_id: str; domain_instance: int; generation: int; artifact_sha256: str
+    artifact_byte_len: int; entries: tuple[tuple[str, str], ...]; source_generation: int
+    source_artifact_sha256: str; source_artifact_byte_len: int
+    source_entries: tuple[tuple[str, str], ...]
+
+
+DETERMINISTIC_ROLLBACK_TARGET = RecoveryTarget(
+    "svc.dev.granted_candidate", 1, 1,
+    "sha256:33ea9dc8f8ecd039236673fafdffcf63e8691a1d352cffee4ddf47531cb5756c", 121,
+    (("env.log", "host_call"),),
+    2, "sha256:f81f9442de3729f58f9d5c43b186a4223e3f0ed0bdde20e94722da8d5733abd2", 4205,
+    (("env.log", "host_call"), ("env.counter_get", "host_call")),
+)
 def _need(condition: bool, code: str) -> None:
     if not condition:
         raise SecurityError(code)
@@ -407,6 +421,226 @@ def _records(records) -> list[dict]:
         _need(total <= 262144, "recovery_malformed")
         out.append(copy)
     return out
+
+
+_GRANT_PREDICATES = {"wasm_import.granted.v1", "wasm_import.revoked.v1"}
+_EVENT_KEYS = {"event_schema", "service_id", "domain_instance", "binding_sha256", "host_import_id", "scope", "generation", "epoch", "parent_grant_id", "parent_grant_sha256"}
+_OUTER_KEYS = {"schema", "id", "kind", "entity", "predicate", "value", "classification", "authority", "boot_id", "sequence", "source", "evidence", "tags", "supersedes", "created_at"}
+def _hash_bytes(value: str, code: str) -> bytes:
+    _need(_hash_text(value), code)
+    return bytes.fromhex(value[7:])
+def _grant_event(record: dict) -> dict:
+    code = "recovery_grant_fold"
+    _need(set(record) == _OUTER_KEYS and record.get("predicate") in _GRANT_PREDICATES, code)
+    value = record.get("value")
+    _need(type(value) is dict and set(value) == _EVENT_KEYS, code)
+    predicate = record["predicate"]
+    grant = predicate == "wasm_import.granted.v1"
+    rid, service = record.get("id"), value.get("service_id")
+    texts = (rid, service, value.get("host_import_id"), value.get("scope"), value.get("parent_grant_id"))
+    _need(all(type(item) is str for item in texts), code)
+    _need(record == {
+        "schema": "raios.memory_record.v0", "id": rid,
+        "kind": "capability_grant" if grant else "capability_denial",
+        "entity": service, "predicate": predicate, "value": value,
+        "classification": "local_only", "authority": "kernel_wasm_import_grant_fold.v1",
+        "boot_id": "origin_boot", "sequence": value.get("epoch"),
+        "source": {"method": "wasm_import.grant_event", "record_id": rid},
+        "evidence": [], "tags": ["wasm_import", "capability"], "supersedes": [],
+        "created_at": {"clock": "boot_ticks", "ticks": 0},
+    }, code)
+    _need(value.get("event_schema") == "raios.wasm_import_grant_event.v1"
+          and value.get("host_import_id") in ("env.log", "env.counter_get")
+          and value.get("scope") == "host_call", code)
+    for field in ("domain_instance", "generation", "epoch"):
+        _need(type(value.get(field)) is int and value[field] > 0, code)
+    binding = _hash_bytes(value.get("binding_sha256"), code)
+    parent_hash = _hash_bytes(value.get("parent_grant_sha256"), code)
+    _need((not value["parent_grant_id"] and parent_hash == bytes(32)) if grant
+          else (bool(value["parent_grant_id"]) and parent_hash != bytes(32)), code)
+    return {**value, "id": rid, "grant": grant, "binding": binding, "parent_hash": parent_hash, "record_hash": hashlib.sha256(_canon(record)).digest()}
+def _projection_hash(slots: list[dict]) -> bytes:
+    body = bytearray()
+    ordered = sorted(slots, key=lambda slot: (slot["service_id"], slot["domain_instance"],
+                     slot["binding"], slot["host_import_id"], slot["scope"],
+                     slot["generation"], slot["id"]))
+    for slot in ordered:
+        body.extend(slot["service_id"].encode()); body.append(0)
+        body.extend(slot["domain_instance"].to_bytes(8, "little")); body.extend(slot["binding"])
+        body.extend(slot["host_import_id"].encode()); body.append(0)
+        body.extend(slot["scope"].encode()); body.append(0)
+        body.extend(slot["generation"].to_bytes(8, "little")); body.extend(slot["id"].encode())
+        body.append(0); body.extend(slot["record_hash"]); body.extend(slot["epoch"].to_bytes(8, "little"))
+        if slot["revoke_id"] is not None:
+            body.extend(slot["revoke_id"].encode())
+        body.append(0); body.append(slot["revoked"])
+    return hashlib.sha256(body).digest()
+
+
+def _target_snapshot(target: RecoveryTarget) -> bytes:
+    code = "recovery_target"
+    _need(type(target) is RecoveryTarget and target == DETERMINISTIC_ROLLBACK_TARGET, code)
+    artifact = _hash_bytes(target.artifact_sha256, code)
+    body = bytearray(b"raios.grant_target_snapshot.v1\0" + target.service_id.encode() + b"\0")
+    body.extend(artifact); body.extend(len(target.entries).to_bytes(8, "little"))
+    for host_import_id, scope in target.entries:
+        body.extend(host_import_id.encode() + b"\0" + scope.encode() + b"\0")
+    return hashlib.sha256(body).digest()
+
+
+_AUTH_KEYS = {"schema", "id", "scope", "classification", "service_id", "record_kind",
+    "install_envelope_version", "activation_approval_sha256", "computed_grant_sha256",
+    "attestation_reference_sha256", "grant_target_schema", "grant_target_count",
+    "grant_target_snapshot_sha256", "w7_invocation_sha256", "w7_receipt_sha256",
+    "receiver_content_sha256", "receiver_candidate_sha256", "catalog_candidate_sha256",
+    "install_envelope_sha256", "install_action_sha256", "install_action_signature_message_sha256",
+    "authority_evidence_sha256", "physical_approval_sha256", "install_authority_key_sha256",
+    "install_signature_der", "install_signature_len", "install_candidate_sha256",
+    "install_candidate_byte_len", "install_generation", "install_log_sequence", "trust_tier"}
+
+
+def _source_authorization(record: dict, target: RecoveryTarget, version) -> None:
+    code = "recovery_source_authorization"
+    _need(type(record) is dict and set(record) == _AUTH_KEYS, code)
+    generation, artifact_text, artifact_len, entries = version
+    service, artifact = target.service_id, _hash_bytes(artifact_text, code)
+    _need(record["schema"] == "raios.install_authorization.v0" and
+          record["record_kind"] == "install_authorization" and record["service_id"] == service and
+          record["id"] == f"install_authorization.origin_boot.{service}.{generation}.v0" and
+          record["scope"] == "origin_boot" and record["classification"] == "local_only" and
+          record["install_envelope_version"] == 2 and record["install_generation"] == generation and
+          type(record["install_log_sequence"]) is int and record["install_log_sequence"] == generation and
+          type(record["install_candidate_byte_len"]) is int and record["install_candidate_byte_len"] == artifact_len and
+          record["trust_tier"] == "dev_key_not_owner_sealed", code)
+    hashes = {name: _hash_bytes(record[name], code) for name in _AUTH_KEYS if name.endswith("_sha256")}
+    _need(all(hashes[name] == artifact for name in ("install_candidate_sha256", "receiver_content_sha256",
+          "receiver_candidate_sha256", "catalog_candidate_sha256")), code)
+    snapshot_body = (b"raios.grant_target_snapshot.v1\0" + service.encode() + b"\0" + artifact +
+                      len(entries).to_bytes(8, "little") +
+                      b"".join(host.encode() + b"\0" + scope.encode() + b"\0"
+                               for host, scope in entries))
+    snapshot = hashlib.sha256(snapshot_body).digest()
+    _need(record["grant_target_schema"] == "raios.grant_target_snapshot.v1" and
+          type(record["grant_target_count"]) is int and record["grant_target_count"] == len(entries) and
+          hashes["grant_target_snapshot_sha256"] == snapshot, code)
+    text = lambda value: len(value.encode()).to_bytes(2, "little") + value.encode()
+    opt = lambda value: bytes((value is not None,)) + (value or bytes(32))
+    envelope_body = ((2).to_bytes(2, "little") + text(service) + artifact +
+        record["install_candidate_byte_len"].to_bytes(8, "little") + hashes["activation_approval_sha256"] +
+        hashes["computed_grant_sha256"] + hashes["attestation_reference_sha256"] +
+        text(record["grant_target_schema"]) + len(entries).to_bytes(8, "little") + snapshot +
+        hashes["w7_invocation_sha256"] + hashes["w7_receipt_sha256"] + artifact * 3 +
+        generation.to_bytes(8, "little") + b"\x01" + text(record["trust_tier"]))
+    envelope = hashlib.sha256(b"raios.granted_candidate_install_envelope.v2" + envelope_body).digest()
+    _need(envelope == hashes["install_envelope_sha256"], code)
+    semantics = (b"\x01\x01" + text(service) + generation.to_bytes(8, "little") +
+        record["install_log_sequence"].to_bytes(8, "little") + opt(None) + opt(envelope) + opt(None) +
+        hashes["authority_evidence_sha256"] + opt(hashes["physical_approval_sha256"]) +
+        opt(hashes["install_authority_key_sha256"]))
+    message = hashlib.sha256(b"raios.project_install_action_signature.v1" + semantics).digest()
+    try:
+        signature = bytes.fromhex(record["install_signature_der"])
+    except (TypeError, ValueError) as exc:
+        raise SecurityError(code) from exc
+    _need(message == hashes["install_action_signature_message_sha256"] and
+          hashes["install_authority_key_sha256"] == bytes.fromhex(_KEY_HASH[7:]) and
+          type(record["install_signature_len"]) is int and record["install_signature_len"] == len(signature), code)
+    _verify_p256(signature, message)
+    action = hashlib.sha256(b"raios.project_install_action.v1" + semantics +
+                            len(signature).to_bytes(2, "little") + signature).digest()
+    _need(action == hashes["install_action_sha256"], code)
+
+
+def derive_recovery_plan(records, target: RecoveryTarget = DETERMINISTIC_ROLLBACK_TARGET) -> RecoveryPlan:
+    """Derive rollback authority solely from the typed grant prefix and fixed target."""
+    values = _records(records)
+    intents = [i for i, item in enumerate(values) if item.get("predicate") == "wasm_import.rollback_intent.v1"]
+    commits = [i for i, item in enumerate(values) if item.get("predicate") == "wasm_import.rollback_commit.v1"]
+    _need(len(intents) == len(commits) == 1 and intents[0] < commits[0], "recovery_ambiguous")
+    intent_index, commit_index = intents[0], commits[0]
+    authorizations = [(i, item) for i, item in enumerate(values) if
+                      item.get("schema") == "raios.install_authorization.v0" or
+                      item.get("record_kind") == "install_authorization"]
+    versions = ((target.generation, target.artifact_sha256, target.artifact_byte_len, target.entries),
+                (target.source_generation, target.source_artifact_sha256,
+                 target.source_artifact_byte_len, target.source_entries))
+    _need(len(authorizations) == len(versions) and all(i < intent_index for i, _ in authorizations),
+          "recovery_source_authorization")
+    auth_indices = {}
+    for (index, record), version in zip(authorizations, versions):
+        _source_authorization(record, target, version)
+        generation = version[0]
+        auth_indices[generation] = index
+    _need(tuple(auth_indices) == (target.generation, target.source_generation), "recovery_source_authorization")
+    shaped = [i for i, item in enumerate(values)
+              if item.get("predicate") in _GRANT_PREDICATES
+              or item.get("kind") in ("capability_grant", "capability_denial")]
+    _need(not any(i > commit_index for i in shaped), "recovery_grant_fold")
+    prefix = [{**_grant_event(values[i]), "record_index": i} for i in shaped if i < intent_index]
+    _need(1 <= len(prefix) <= 128, "recovery_grant_fold")
+    slots, ids, prior_epoch = [], set(), 0
+    for event in prefix:
+        _need(event["epoch"] > prior_epoch and event["id"] not in ids, "recovery_grant_fold")
+        prior_epoch = event["epoch"]; ids.add(event["id"])
+        identity = (event["service_id"], event["domain_instance"], event["binding"],
+                    event["host_import_id"], event["scope"])
+        matches = [slot for slot in slots if slot["identity"] == identity]
+        if event["grant"]:
+            _need(len(slots) < 8 and not any(not slot["revoked"] for slot in matches)
+                  and not any(slot["generation"] >= event["generation"] for slot in matches),
+                  "recovery_grant_fold")
+            slots.append({**event, "identity": identity, "revoke_id": None, "revoked": 0})
+        else:
+            parents = [slot for slot in slots if slot["id"] == event["parent_grant_id"]]
+            _need(len(parents) == 1, "recovery_grant_fold")
+            parent = parents[0]
+            _need(not parent["revoked"] and parent["identity"] == identity
+                  and parent["generation"] == event["generation"]
+                  and parent["record_hash"] == event["parent_hash"], "recovery_grant_fold")
+            parent["revoked"] = 1; parent["revoke_id"] = event["id"]
+    expected_binding = hashlib.sha256(target.service_id.encode()).digest()
+    _need(len(slots) == 2 and all(not slot["revoked"] for slot in slots), "recovery_grant_fold")
+    live = [slot for slot in slots if not slot["revoked"] and slot["service_id"] == target.service_id
+            and slot["domain_instance"] == target.domain_instance and slot["binding"] == expected_binding]
+    _need({(slot["host_import_id"], slot["scope"]) for slot in live}
+          == {("env.log", "host_call"), ("env.counter_get", "host_call")}, "recovery_delta")
+    generations = {slot["host_import_id"]: slot["generation"] for slot in live}
+    _need(generations["env.counter_get"] == target.source_generation and
+          generations["env.log"] in (target.generation, target.source_generation), "recovery_grant_fold")
+    _need(all(auth_indices[slot["generation"]] < slot["record_index"] for slot in live),
+          "recovery_source_authorization")
+    ordered = {slot["host_import_id"]: slot["record_index"] for slot in live}
+    _need((ordered["env.log"] < ordered["env.counter_get"] and
+           (generations["env.log"] == target.source_generation or
+            ordered["env.log"] < auth_indices[target.source_generation])), "recovery_source_authorization")
+    _need(all(slot["service_id"] == target.service_id and slot["domain_instance"] == target.domain_instance
+              and slot["binding"] == expected_binding for slot in slots), "recovery_grant_fold")
+    removed = [slot for slot in live if (slot["host_import_id"], slot["scope"]) not in target.entries]
+    _need(len(removed) == 1 and removed[0]["host_import_id"] == "env.counter_get", "recovery_delta")
+    removed = removed[0]
+    source_hash = _projection_hash(slots)
+    delta_body = (removed["id"].encode() + b"\0" + removed["record_hash"]
+                  + removed["epoch"].to_bytes(8, "little") + removed["binding"]
+                  + removed["host_import_id"].encode() + b"\0" + removed["scope"].encode()
+                  + b"\0" + removed["generation"].to_bytes(8, "little"))
+    delta_hash, target_hash = hashlib.sha256(delta_body).digest(), _target_snapshot(target)
+    transaction_id = hashlib.sha256(source_hash + target_hash + delta_hash).hexdigest()
+    revoke_id = (f"rollback.revoke.v1.{len(transaction_id.encode())}.{transaction_id.encode().hex()}."
+                 f"{len(removed['id'].encode())}.{removed['id'].encode().hex()}")
+    result_slots = [dict(slot) for slot in slots]
+    result = next(slot for slot in result_slots if slot["id"] == removed["id"])
+    result["revoked"] = 1; result["revoke_id"] = revoke_id
+    binding = RecoveryBinding(transaction_id, target.service_id, target.domain_instance,
+        "sha256:" + source_hash.hex(), "sha256:" + _projection_hash(result_slots).hex(),
+        "sha256:" + target_hash.hex(), 1, "sha256:" + delta_hash.hex(), removed["id"],
+        "sha256:" + removed["record_hash"].hex(), "sha256:" + removed["binding"].hex(),
+        removed["host_import_id"], removed["scope"], removed["generation"], len(prefix) + 1,
+        f"rollback.intent.{transaction_id}", f"rollback.commit.{transaction_id}")
+    plan = select_recovery(values, binding)
+    _need(plan.intent_index == intent_index and plan.commit_index == commit_index, "recovery_order")
+    _need(not any(i != plan.revoke_index for i in shaped if intent_index < i < commit_index),
+          "recovery_delta")
+    return plan
 
 
 def select_recovery(records, binding: RecoveryBinding) -> RecoveryPlan:
