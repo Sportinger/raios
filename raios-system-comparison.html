@@ -1,0 +1,1121 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta name='description' content='Historical, non-normative raiOS architecture comparison snapshot dated July 24, 2026.'>
+  <title>raiOS system comparison</title>
+  <style>
+    :root {
+      --paper: #101412;
+      --card: #181d1a;
+      --card-deep: #141916;
+      --ink: #e6eae4;
+      --muted: #97a29a;
+      --line: #262d28;
+      --line-strong: #37403a;
+      --channel: #121815;
+      --frame: #2e4a3c;
+      --accent: #58a17f;
+      --accent-wash: #1f2a24;
+
+      --c-native: #2fa365;
+      --c-partial: #d79b23;
+      --c-work: #5b93d8;
+      --c-external: #9b7fd4;
+      --c-missing: #d65548;
+    }
+
+    * { box-sizing: border-box; }
+
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+
+    html {
+      background: var(--paper);
+      color: var(--ink);
+      font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system,
+        "Helvetica Neue", Arial, sans-serif;
+      /* Dynamic scale: the whole page grows with the window */
+      font-size: clamp(15px, 0.8vw + 7px, 23px);
+    }
+
+    body { margin: 0; min-width: 320px; }
+
+    a {
+      color: var(--accent);
+      text-decoration-color: rgba(88, 161, 127, 0.45);
+      text-underline-offset: 0.18em;
+    }
+    a:hover { text-decoration-color: currentColor; }
+
+    .page {
+      width: min(100% - 2.5rem, 92rem);
+      margin: 0 auto;
+      padding: 2.75rem 0 4rem;
+    }
+
+    /* ---------- Masthead ---------- */
+
+    .masthead {
+      display: grid;
+      grid-template-columns: minmax(0, 1.1fr) minmax(17.5rem, 0.9fr);
+      gap: 2.5rem;
+      align-items: end;
+      margin-bottom: 1.6rem;
+    }
+
+    .eyebrow {
+      margin: 0 0 0.6rem;
+      color: var(--accent);
+      font-size: 0.74rem;
+      font-weight: 700;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      margin: 0 0 0.35rem;
+      font-size: 2.1rem;
+      font-weight: 750;
+      letter-spacing: -0.02em;
+      line-height: 1.1;
+    }
+
+    .focus {
+      margin: 0;
+      font-size: 1.2rem;
+      font-weight: 600;
+      color: var(--ink);
+      line-height: 1.35;
+    }
+    .focus .q { color: var(--accent); }
+
+    .intro {
+      margin: 0;
+      color: var(--muted);
+      font-size: 0.95rem;
+      line-height: 1.6;
+    }
+    .intro strong { color: var(--ink); font-weight: 650; }
+
+    .analysis-boundary {
+      margin: 0 0 1.6rem;
+      padding: 0.9rem 1.1rem;
+      color: var(--muted);
+      background: var(--accent-wash);
+      border: 1px solid var(--frame);
+      border-radius: 0.65rem;
+      font-size: 0.82rem;
+      line-height: 1.55;
+    }
+    .analysis-boundary strong { color: var(--ink); }
+
+    /* ---------- Status icons ---------- */
+
+    .i {
+      position: relative;
+      display: inline-grid;
+      place-items: center;
+      width: 1.6rem;
+      height: 1.6rem;
+      vertical-align: middle;
+    }
+
+    .i.native, .i.partial, .i.work {
+      border-radius: 50%;
+    }
+    .i.native  { background: var(--c-native); }
+    .i.partial { background: var(--c-partial); }
+    .i.work    { background: var(--c-work); }
+
+    .i.native::before {
+      content: "";
+      width: 0.72rem;
+      height: 0.4rem;
+      margin-top: -0.2rem;
+      border-left: 0.17rem solid #0d130f;
+      border-bottom: 0.17rem solid #0d130f;
+      transform: rotate(-45deg);
+    }
+
+    .i.partial::before {
+      content: "";
+      width: 0.72rem;
+      height: 0.2rem;
+      border-radius: 0.13rem;
+      background: #14110a;
+    }
+
+    .i.work::before {
+      content: "";
+      width: 0.24rem;
+      height: 0.24rem;
+      border-radius: 50%;
+      background: #0e1319;
+      box-shadow: -0.37rem 0 0 #0e1319, 0.37rem 0 0 #0e1319;
+    }
+
+    .i.external::before {
+      content: "";
+      width: 0.95rem;
+      height: 0.95rem;
+      border-radius: 0.19rem;
+      background: var(--c-external);
+      transform: rotate(45deg);
+    }
+
+    .i.missing::before,
+    .i.missing::after {
+      content: "";
+      position: absolute;
+      left: calc(50% - 0.47rem);
+      top: calc(50% - 0.1rem);
+      width: 0.95rem;
+      height: 0.2rem;
+      border-radius: 0.13rem;
+      background: var(--c-missing);
+    }
+    .i.missing::before { transform: rotate(45deg); }
+    .i.missing::after  { transform: rotate(-45deg); }
+
+    /* ---------- Matrix card ---------- */
+
+    .matrix-card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 0.9rem;
+      box-shadow: 0 1.2rem 3.2rem rgba(0, 0, 0, 0.45);
+      padding: 1.25rem 1.25rem 1.1rem;
+      min-width: 0;
+    }
+
+    .matrix-scroll {
+      overflow-x: auto;
+      overscroll-behavior-inline: contain;
+      padding-right: 7.5rem;
+    }
+
+    table {
+      border-collapse: separate;
+      border-spacing: 0;
+      width: 100%;
+      min-width: 52.5rem;
+      table-layout: fixed;
+    }
+
+    col.c-name { width: 12.5rem; }
+    col.c-crit { width: 3.3rem; }
+
+    /* Group tabs: floating pills above the slanted labels */
+    .tab-row .blank { border: 0; }
+
+    th.tab {
+      padding: 0 0.6rem 0.55rem 0.15rem;
+      background: transparent;
+      border: 0;
+      text-align: left;
+      vertical-align: bottom;
+    }
+
+    th.tab.gs { border-left: 0.5rem solid transparent; }
+
+    /* Parallelogram pills, slanted at the same 55° angle as the labels below */
+    .tab-pill {
+      display: flex;
+      align-items: center;
+      min-height: 2.6rem;
+      padding: 0.34rem 0.9rem 0.34rem 0.6rem;
+      background: var(--frame);
+      border-radius: 0.45rem;
+      transform: translateX(6.7rem) skewX(-35deg);
+      transform-origin: 0 100%;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+      transition: transform 320ms cubic-bezier(0.22, 0.9, 0.26, 1);
+    }
+
+    .tab-pill .t {
+      display: block;
+      transform: skewX(35deg);
+      transform-origin: 0 100%;
+      transition: transform 320ms cubic-bezier(0.22, 0.9, 0.26, 1);
+      padding: 0 0.2rem 0 1.1rem;
+      color: #e3ece5;
+      font-size: 0.68rem;
+      font-weight: 700;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+      line-height: 1.3;
+    }
+
+    th.tab .n { color: #8fb5a1; margin-right: 0.45rem; }
+
+    /* Slanted criterion labels — open air, no boxes behind them */
+    th.crit {
+      position: relative;
+      height: 9.9rem;
+      padding: 0;
+      border-bottom: 2px solid var(--line-strong);
+      background: transparent;
+    }
+
+    /* In the label zone the group channel stays invisible (keeps geometry, kills hard edges) */
+    th.crit.gs { border-left-color: transparent; }
+
+    /* Ultra-thin separators between label lanes, slanted like the text, fading upward */
+    th.crit::before {
+      content: "";
+      position: absolute;
+      left: 0.1rem;
+      bottom: 0.25rem;
+      width: 10.6rem;
+      height: 1px;
+      background: linear-gradient(90deg, rgba(230, 234, 228, 0.13), rgba(230, 234, 228, 0.015));
+      transform: rotate(-55deg);
+      transform-origin: 0 100%;
+      z-index: 1;
+      pointer-events: none;
+    }
+
+    th.crit.gs::before {
+      width: 11.75rem;
+      background: linear-gradient(90deg, rgba(230, 234, 228, 0.22), rgba(230, 234, 228, 0.04));
+    }
+
+    th.crit .lbl {
+      position: absolute;
+      bottom: 0.5rem;
+      left: calc(50% - 0.35rem);
+      z-index: 3;
+      display: inline-block;
+      width: 9.8rem;
+      transform: rotate(-55deg);
+      transform-origin: 0 100%;
+      color: #c6d0c8;
+      font-size: 0.78rem;
+      font-weight: 600;
+      line-height: 1.18;
+      letter-spacing: 0.01em;
+      text-align: left;
+      white-space: normal;
+      cursor: default;
+      transition: transform 320ms cubic-bezier(0.22, 0.9, 0.26, 1), color 160ms ease,
+        opacity 220ms ease, font-size 220ms ease, padding 220ms ease,
+        background-color 220ms ease;
+    }
+
+    th.crit.hl .lbl { color: #f2f6f1; }
+
+    /* Hovered column: its label swings down flat and becomes a floating tag */
+    thead.peeking th.crit.hl .lbl {
+      transform: rotate(0deg);
+      z-index: 6;
+      padding: 0.3rem 0.6rem;
+      background: rgba(18, 23, 20, 0.96);
+      border: 1px solid var(--line-strong);
+      border-radius: 0.45rem;
+      color: #ffffff;
+      font-size: 0.85rem;
+      box-shadow: 0 0.5rem 1.4rem rgba(0, 0, 0, 0.55);
+    }
+
+    thead.peeking th.crit.hl.edge .lbl {
+      transform: rotate(0deg) translateX(-58%);
+    }
+
+    /* All other labels fold fully upright, dim, and step aside */
+    thead.peeking th.crit:not(.hl) .lbl {
+      transform: rotate(-90deg);
+      opacity: 0.4;
+    }
+
+    /* The background animates along: lane lines swing upright too */
+    th.crit::before {
+      transition: transform 320ms cubic-bezier(0.22, 0.9, 0.26, 1), opacity 220ms ease;
+    }
+
+    thead.peeking th.crit:not(.hl)::before {
+      transform: rotate(-90deg) scaleX(0.86);
+      opacity: 0.5;
+    }
+
+    thead.peeking th.crit.gs:not(.hl)::before {
+      transform: rotate(-90deg) scaleX(0.78);
+      opacity: 0.85;
+    }
+
+    thead.peeking th.crit.hl::before { opacity: 0; }
+
+    /* ...and the group pills un-skew and glide back over their groups */
+    thead.peeking .tab-pill {
+      transform: translateX(0) skewX(0deg);
+    }
+
+    thead.peeking .tab-pill .t {
+      transform: skewX(0deg);
+    }
+
+    th.colhead {
+      position: relative;
+      padding: 0 0.6rem 0.55rem 0.15rem;
+      vertical-align: bottom;
+      text-align: left;
+      color: var(--muted);
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.11em;
+      text-transform: uppercase;
+      border-bottom: 2px solid var(--line-strong);
+      background: transparent;
+    }
+
+    /* Mini key fills the otherwise dead corner */
+    .mini-key {
+      position: absolute;
+      left: 0.15rem;
+      top: 0.55rem;
+      display: grid;
+      gap: 0.28rem;
+    }
+
+    .mini-key span.item {
+      display: grid;
+      grid-template-columns: 1.35rem auto;
+      align-items: center;
+      gap: 0.4rem;
+      color: var(--muted);
+      font-size: 0.72rem;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      text-transform: none;
+    }
+
+    .mini-key .i { transform: scale(0.68); transform-origin: center; }
+
+    /* Group channels: visual gap before each criteria group */
+    .gs { border-left: 0.5rem solid var(--channel); }
+
+    /* System rows */
+    tbody th.name {
+      padding: 0.8rem 0.6rem 0.8rem 0.15rem;
+      text-align: left;
+      border-bottom: 1px solid var(--line);
+      line-height: 1.25;
+    }
+
+    .sysname {
+      font-size: 0.98rem;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+    }
+
+    .meta {
+      display: block;
+      margin-top: 0.15rem;
+      color: var(--muted);
+      font-size: 0.73rem;
+      font-weight: 450;
+      line-height: 1.3;
+    }
+
+    tbody td.mark {
+      padding: 0.85rem 0.25rem;
+      text-align: center;
+      border-bottom: 1px solid var(--line);
+      border-right: 1px solid rgba(230, 234, 228, 0.045);
+      cursor: pointer;
+      transition: background 100ms ease;
+    }
+
+    tbody tr > td:last-child { border-right: 0; }
+
+    tbody tr:last-child > * { border-bottom: 0; }
+
+    tbody tr:hover th.name,
+    tbody tr:hover td { background: #1e2521; }
+
+    /* Column crosshair highlight */
+    tbody td.hl { background: #222b25; }
+    tbody tr:hover td.hl { background: #263029; }
+
+    /* raiOS row */
+    tr.raios th.name,
+    tr.raios td { background: var(--accent-wash); }
+    tr.raios:hover th.name,
+    tr.raios:hover td { background: #253227; }
+    tr.raios td.hl { background: #283831; }
+    tr.raios th.name { box-shadow: inset 0.25rem 0 0 var(--accent); padding-left: 0.6rem; }
+    tr.raios td, tr.raios th.name { border-bottom: 1.5px solid #34493e; }
+
+    /* Pinned cell */
+    td.mark.pinned .i { box-shadow: 0 0 0 2.5px var(--ink), 0 0 0.9rem rgba(230, 234, 228, 0.25); }
+
+    .chip {
+      display: inline-block;
+      margin-left: 0.5rem;
+      padding: 0.14rem 0.5rem 0.17rem;
+      background: var(--accent);
+      color: #0c120e;
+      font-size: 0.6rem;
+      font-weight: 750;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      border-radius: 999px;
+      vertical-align: 0.14rem;
+    }
+
+    /* ---------- Interactive inspect bar ---------- */
+
+    .inspect {
+      display: flex;
+      align-items: center;
+      gap: 0.85rem;
+      min-height: 3.5rem;
+      margin-top: 1rem;
+      padding: 0.7rem 1rem;
+      background: var(--card-deep);
+      border: 1px solid var(--line);
+      border-radius: 0.6rem;
+    }
+
+    .inspect .i { flex: none; transform: scale(1.15); }
+
+    .inspect p {
+      margin: 0;
+      font-size: 0.95rem;
+      line-height: 1.45;
+    }
+
+    .inspect .crit-name { color: var(--muted); }
+
+    .inspect-empty {
+      color: var(--muted);
+      font-style: italic;
+      font-size: 0.88rem !important;
+    }
+
+    /* ---------- Takeaway ---------- */
+
+    .takeaway {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr);
+      gap: 1.1rem;
+      align-items: start;
+      margin-top: 1.6rem;
+      padding: 1.1rem 1.25rem;
+      border-left: 0.3rem solid var(--accent);
+      background: var(--card);
+      border-radius: 0 0.6rem 0.6rem 0;
+      border-top: 1px solid var(--line);
+      border-right: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .takeaway-label {
+      color: var(--accent);
+      font-size: 0.74rem;
+      font-weight: 800;
+      letter-spacing: 0.11em;
+      text-transform: uppercase;
+      white-space: nowrap;
+      padding-top: 0.2rem;
+    }
+
+    .takeaway p {
+      margin: 0;
+      font-size: 0.95rem;
+      line-height: 1.55;
+    }
+    .takeaway strong { font-weight: 750; }
+
+    /* ---------- Legend (at the bottom) ---------- */
+
+    .legend {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+      gap: 0 1.6rem;
+      margin-top: 1.6rem;
+      padding: 1.1rem 1.3rem 0.25rem;
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 0.75rem;
+    }
+
+    .legend-title {
+      grid-column: 1 / -1;
+      margin: 0 0 0.95rem;
+      color: var(--muted);
+      font-size: 0.74rem;
+      font-weight: 700;
+      letter-spacing: 0.13em;
+      text-transform: uppercase;
+    }
+
+    .key {
+      display: grid;
+      grid-template-columns: 1.8rem minmax(0, 1fr);
+      gap: 0.7rem;
+      align-items: start;
+      margin-bottom: 1rem;
+    }
+
+    .key b {
+      display: block;
+      font-size: 0.88rem;
+      font-weight: 700;
+      letter-spacing: 0.01em;
+      margin: 0.1rem 0 0.19rem;
+    }
+
+    .key.native b   { color: var(--c-native); }
+    .key.partial b  { color: var(--c-partial); }
+    .key.work b     { color: var(--c-work); }
+    .key.external b { color: var(--c-external); }
+    .key.missing b  { color: var(--c-missing); }
+
+    .key .desc {
+      display: block;
+      color: var(--muted);
+      font-size: 0.8rem;
+      line-height: 1.45;
+    }
+
+    /* ---------- Appendices ---------- */
+
+    details {
+      margin-top: 1.4rem;
+      color: var(--muted);
+      font-size: 0.84rem;
+      line-height: 1.6;
+    }
+
+    summary {
+      width: fit-content;
+      cursor: pointer;
+      color: var(--ink);
+      font-weight: 700;
+      font-size: 0.88rem;
+    }
+
+    .reasons-list {
+      margin: 0.9rem 0 0;
+      padding-left: 1.25rem;
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 1.1rem 2.5rem;
+    }
+
+    .reasons-list > li::marker { color: var(--accent); font-weight: 700; }
+
+    .reasons-list > li > b {
+      color: var(--ink);
+      font-size: 0.88rem;
+    }
+
+    .reasons-list ul {
+      margin: 0.4rem 0 0;
+      padding-left: 0;
+      list-style: none;
+    }
+
+    .reasons-list ul li {
+      margin: 0.15rem 0;
+    }
+
+    .reasons-list .sys {
+      display: inline-block;
+      min-width: 6.6rem;
+      color: var(--ink);
+      font-weight: 650;
+    }
+
+    .st { font-weight: 700; }
+    .st.native   { color: var(--c-native); }
+    .st.partial  { color: var(--c-partial); }
+    .st.work     { color: var(--c-work); }
+    .st.external { color: var(--c-external); }
+    .st.missing  { color: var(--c-missing); }
+
+    .sources {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 0.5rem 1.6rem;
+      margin: 0.75rem 0 0;
+      padding-left: 1.25rem;
+    }
+
+    .footnote {
+      margin: 1.25rem 0 0;
+      color: var(--muted);
+      font-size: 0.76rem;
+      line-height: 1.5;
+      max-width: 78ch;
+    }
+
+    /* ---------- Responsive ---------- */
+
+    @media (max-width: 1080px) {
+      .masthead { grid-template-columns: minmax(0, 1fr); gap: 0.9rem; }
+    }
+
+    @media (max-width: 700px) {
+      .page { width: min(100% - 1.4rem, 92rem); padding-top: 1.9rem; }
+
+      .matrix-card { padding: 0.75rem 0.75rem 0.7rem; border-radius: 0.75rem; }
+      .matrix-scroll { padding-right: 7rem; }
+
+      /* Sticky system names while scrolling the criteria */
+      tbody th.name {
+        position: sticky;
+        left: 0;
+        z-index: 2;
+        background: var(--card);
+        border-right: 1px solid var(--line-strong);
+      }
+      col.c-name { width: 8.5rem; }
+      .sysname { font-size: 0.85rem; }
+      .meta { font-size: 0.66rem; }
+      .chip { display: block; width: fit-content; margin: 0.25rem 0 0; }
+
+      th.colhead { font-size: 0.64rem; }
+      .mini-key { display: none; }
+
+      .takeaway { grid-template-columns: 1fr; gap: 0.5rem; }
+      .reasons-list, .sources { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header class="masthead">
+      <div>
+        <p class="eyebrow">Architecture comparison &middot; July 2026</p>
+        <h1>raiOS system comparison</h1>
+        <p class="focus">Focus: <span class="q">what happens between "code generated" and "allowed to run"?</span></p>
+      </div>
+      <p class="intro">
+        Most systems handle individual links in this chain very well.
+        <strong>raiOS attempts to make the whole chain one coherent, inspectable model.</strong>
+        This table deliberately avoids an overall score.
+      </p>
+    </header>
+
+    <aside class='analysis-boundary' aria-label='Analysis boundary'>
+      <strong>Historical, non-normative analysis.</strong>
+      This bounded comparison records an assessment made on July 24, 2026. It
+      neither establishes an ADR nor supplies current implementation or hardware
+      evidence, accepts a change, or closes a checkbox. For raiOS, the target
+      model describes intended architecture; status marks describe only
+      implementation evidence observed in the dated snapshot, not today's
+      accepted state. This is not a complete literature, patent, or market
+      review.
+    </aside>
+
+    <div class="matrix-card">
+      <div class="matrix-scroll">
+        <table>
+          <caption style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0">
+            Comparison of raiOS, Microsoft Singularity, Genode Sculpt, Fuchsia, Qubes OS, and a Linux tool stack
+          </caption>
+          <colgroup>
+            <col class="c-name">
+            <col class="c-crit" span="4">
+            <col class="c-crit" span="4">
+            <col class="c-crit" span="2">
+            <col class="c-crit" span="2">
+          </colgroup>
+          <thead>
+            <tr class="tab-row">
+              <td class="blank"></td>
+              <th class="tab gs" colspan="4" scope="colgroup"><span class="tab-pill"><span class="t"><span class="n">01</span>Understanding the system</span></span></th>
+              <th class="tab gs" colspan="4" scope="colgroup"><span class="tab-pill"><span class="t"><span class="n">02</span>Admitting new software</span></span></th>
+              <th class="tab gs" colspan="2" scope="colgroup"><span class="tab-pill"><span class="t"><span class="n">03</span>Runtime authority</span></span></th>
+              <th class="tab gs" colspan="2" scope="colgroup"><span class="tab-pill"><span class="t"><span class="n">04</span>Lifecycle</span></span></th>
+            </tr>
+            <tr class="label-row">
+              <th class="colhead" scope="col">
+                <div class="mini-key" aria-hidden="true">
+                  <span class="item"><span class="i native"></span>Native</span>
+                  <span class="item"><span class="i partial"></span>Partial</span>
+                  <span class="item"><span class="i work"></span>In progress</span>
+                  <span class="item"><span class="i external"></span>Composable</span>
+                  <span class="item"><span class="i missing"></span>Missing</span>
+                </div>
+                <span class="sr-only">System</span>
+              </th>
+              <th class="crit gs" scope="col"><span class="lbl">Query live state in a structured form</span></th>
+              <th class="crit" scope="col"><span class="lbl">Source and confidence of each claim are visible</span></th>
+              <th class="crit" scope="col"><span class="lbl">Shows the agent what was omitted</span></th>
+              <th class="crit" scope="col"><span class="lbl">Observation cannot grant authority</span></th>
+              <th class="crit gs" scope="col"><span class="lbl">Code remains inert until the gate</span></th>
+              <th class="crit" scope="col"><span class="lbl">Decision is bound to the exact tested hash</span></th>
+              <th class="crit" scope="col"><span class="lbl">Owner approves this exact artifact</span></th>
+              <th class="crit" scope="col"><span class="lbl">A missing prerequisite is identified structurally</span></th>
+              <th class="crit gs" scope="col"><span class="lbl">Minimal authority per service</span></th>
+              <th class="crit" scope="col"><span class="lbl">Authority can be revoked precisely</span></th>
+              <th class="crit gs" scope="col"><span class="lbl">Rollback covers code, authority, and state</span></th>
+              <th class="crit edge" scope="col"><span class="lbl">One protocol spans the entire chain</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="raios">
+              <th class="name" scope="row"><span class="sysname">raiOS</span><span class="chip">this project</span><span class="meta">Prototype &middot; unified target model</span></th>
+              <td class="mark gs" title="Partial — Snapshots, devices, and problems"><span class="i partial" role="img" aria-label="Partial — Snapshots, devices, and problems"></span></td>
+              <td class="mark" title="In progress — Evidence schema exists"><span class="i work" role="img" aria-label="In progress — Evidence schema exists"></span></td>
+              <td class="mark" title="Native — Context, sources, and reasons"><span class="i native" role="img" aria-label="Native — Context, sources, and reasons"></span></td>
+              <td class="mark" title="Native — Separated in the response type"><span class="i native" role="img" aria-label="Native — Separated in the response type"></span></td>
+              <td class="mark gs" title="In progress — Contract defined; loop not closed"><span class="i work" role="img" aria-label="In progress — Contract defined; loop not closed"></span></td>
+              <td class="mark" title="In progress — Reports and hashes exist"><span class="i work" role="img" aria-label="In progress — Reports and hashes exist"></span></td>
+              <td class="mark" title="In progress — Approval schema exists"><span class="i work" role="img" aria-label="In progress — Approval schema exists"></span></td>
+              <td class="mark" title="Partial — Some denials are still generic"><span class="i partial" role="img" aria-label="Partial — Some denials are still generic"></span></td>
+              <td class="mark gs" title="Partial — Wasm imports and grants"><span class="i partial" role="img" aria-label="Partial — Wasm imports and grants"></span></td>
+              <td class="mark" title="Partial — Limited revoke paths"><span class="i partial" role="img" aria-label="Partial — Limited revoke paths"></span></td>
+              <td class="mark gs" title="In progress — One transaction is the target"><span class="i work" role="img" aria-label="In progress — One transaction is the target"></span></td>
+              <td class="mark" title="In progress — Parts already implemented"><span class="i work" role="img" aria-label="In progress — Parts already implemented"></span></td>
+            </tr>
+            <tr>
+              <th class="name" scope="row"><span class="sysname">Singularity</span><span class="meta">Microsoft Research &middot; ended in 2008</span></th>
+              <td class="mark gs" title="Partial — Strong manifests, limited live view"><span class="i partial" role="img" aria-label="Partial — Strong manifests, limited live view"></span></td>
+              <td class="mark" title="Partial — Manifest and digest"><span class="i partial" role="img" aria-label="Partial — Manifest and digest"></span></td>
+              <td class="mark" title="Missing — No agent-context protocol"><span class="i missing" role="img" aria-label="Missing — No agent-context protocol"></span></td>
+              <td class="mark" title="Partial — Gatekeeper decides separately"><span class="i partial" role="img" aria-label="Partial — Gatekeeper decides separately"></span></td>
+              <td class="mark gs" title="Native — Starts only with a manifest"><span class="i native" role="img" aria-label="Native — Starts only with a manifest"></span></td>
+              <td class="mark" title="Partial — Digest without a test tuple"><span class="i partial" role="img" aria-label="Partial — Digest without a test tuple"></span></td>
+              <td class="mark" title="Missing — Policy rather than hash approval"><span class="i missing" role="img" aria-label="Missing — Policy rather than hash approval"></span></td>
+              <td class="mark" title="Partial — Verifier and gate"><span class="i partial" role="img" aria-label="Partial — Verifier and gate"></span></td>
+              <td class="mark gs" title="Native — SIPs and contract channels"><span class="i native" role="img" aria-label="Native — SIPs and contract channels"></span></td>
+              <td class="mark" title="Partial — Process and gate"><span class="i partial" role="img" aria-label="Partial — Process and gate"></span></td>
+              <td class="mark gs" title="Missing — No unified rollback"><span class="i missing" role="img" aria-label="Missing — No unified rollback"></span></td>
+              <td class="mark" title="Partial — Manifest centered"><span class="i partial" role="img" aria-label="Partial — Manifest centered"></span></td>
+            </tr>
+            <tr>
+              <th class="name" scope="row"><span class="sysname">Sculpt</span><span class="meta">Genode &middot; capability-based OS</span></th>
+              <td class="mark gs" title="Native — Live component graph"><span class="i native" role="img" aria-label="Native — Live component graph"></span></td>
+              <td class="mark" title="Partial — Report origin is visible"><span class="i partial" role="img" aria-label="Partial — Report origin is visible"></span></td>
+              <td class="mark" title="Missing — No agent-context protocol"><span class="i missing" role="img" aria-label="Missing — No agent-context protocol"></span></td>
+              <td class="mark" title="Native — A report is not a capability"><span class="i native" role="img" aria-label="Native — A report is not a capability"></span></td>
+              <td class="mark gs" title="Partial — Deployment configuration"><span class="i partial" role="img" aria-label="Partial — Deployment configuration"></span></td>
+              <td class="mark" title="Missing — Signature, not test binding"><span class="i missing" role="img" aria-label="Missing — Signature, not test binding"></span></td>
+              <td class="mark" title="Partial — Owner chooses start or installation"><span class="i partial" role="img" aria-label="Partial — Owner chooses start or installation"></span></td>
+              <td class="mark" title="Partial — Reports and logs"><span class="i partial" role="img" aria-label="Partial — Reports and logs"></span></td>
+              <td class="mark gs" title="Native — Capability routing"><span class="i native" role="img" aria-label="Native — Capability routing"></span></td>
+              <td class="mark" title="Native — Stop and reroute"><span class="i native" role="img" aria-label="Native — Stop and reroute"></span></td>
+              <td class="mark gs" title="Partial — System and configuration"><span class="i partial" role="img" aria-label="Partial — System and configuration"></span></td>
+              <td class="mark" title="Missing — Reports, config, and depot are separate"><span class="i missing" role="img" aria-label="Missing — Reports, config, and depot are separate"></span></td>
+            </tr>
+            <tr>
+              <th class="name" scope="row"><span class="sysname">Fuchsia</span><span class="meta">Google &middot; component platform</span></th>
+              <td class="mark gs" title="Native — Topology and Inspect"><span class="i native" role="img" aria-label="Native — Topology and Inspect"></span></td>
+              <td class="mark" title="Partial — Moniker and diagnostic source"><span class="i partial" role="img" aria-label="Partial — Moniker and diagnostic source"></span></td>
+              <td class="mark" title="Missing — No agent-context protocol"><span class="i missing" role="img" aria-label="Missing — No agent-context protocol"></span></td>
+              <td class="mark" title="Native — Inspect does not route capabilities"><span class="i native" role="img" aria-label="Native — Inspect does not route capabilities"></span></td>
+              <td class="mark gs" title="Partial — Package and manifest"><span class="i partial" role="img" aria-label="Partial — Package and manifest"></span></td>
+              <td class="mark" title="Partial — Merkle ID without test binding"><span class="i partial" role="img" aria-label="Partial — Merkle ID without test binding"></span></td>
+              <td class="mark" title="Missing — No local promotion gate"><span class="i missing" role="img" aria-label="Missing — No local promotion gate"></span></td>
+              <td class="mark" title="Partial — Routing diagnostics"><span class="i partial" role="img" aria-label="Partial — Routing diagnostics"></span></td>
+              <td class="mark gs" title="Native — Capability routing"><span class="i native" role="img" aria-label="Native — Capability routing"></span></td>
+              <td class="mark" title="Partial — Lifecycle and realm"><span class="i partial" role="img" aria-label="Partial — Lifecycle and realm"></span></td>
+              <td class="mark gs" title="Partial — A/B system update"><span class="i partial" role="img" aria-label="Partial — A/B system update"></span></td>
+              <td class="mark" title="Missing — Multiple frameworks"><span class="i missing" role="img" aria-label="Missing — Multiple frameworks"></span></td>
+            </tr>
+            <tr>
+              <th class="name" scope="row"><span class="sysname">Qubes OS</span><span class="meta">Security OS &middot; VM domains</span></th>
+              <td class="mark gs" title="Partial — VM and domain view"><span class="i partial" role="img" aria-label="Partial — VM and domain view"></span></td>
+              <td class="mark" title="Missing — No shared authority hierarchy"><span class="i missing" role="img" aria-label="Missing — No shared authority hierarchy"></span></td>
+              <td class="mark" title="Missing — No agent-context protocol"><span class="i missing" role="img" aria-label="Missing — No agent-context protocol"></span></td>
+              <td class="mark" title="Native — Reading state does not alter policy"><span class="i native" role="img" aria-label="Native — Reading state does not alter policy"></span></td>
+              <td class="mark gs" title="Partial — Isolation rather than promotion"><span class="i partial" role="img" aria-label="Partial — Isolation rather than promotion"></span></td>
+              <td class="mark" title="Missing — Policy applies to the domain"><span class="i missing" role="img" aria-label="Missing — Policy applies to the domain"></span></td>
+              <td class="mark" title="Partial — Ask per action, not per artifact"><span class="i partial" role="img" aria-label="Partial — Ask per action, not per artifact"></span></td>
+              <td class="mark" title="Partial — Allow, deny, or ask"><span class="i partial" role="img" aria-label="Partial — Allow, deny, or ask"></span></td>
+              <td class="mark gs" title="Partial — At VM and RPC level"><span class="i partial" role="img" aria-label="Partial — At VM and RPC level"></span></td>
+              <td class="mark" title="Native — RPC, network, and domain"><span class="i native" role="img" aria-label="Native — RPC, network, and domain"></span></td>
+              <td class="mark gs" title="Partial — Volume revert; policy separate"><span class="i partial" role="img" aria-label="Partial — Volume revert; policy separate"></span></td>
+              <td class="mark" title="Missing — Isolation and policy are the focus"><span class="i missing" role="img" aria-label="Missing — Isolation and policy are the focus"></span></td>
+            </tr>
+            <tr>
+              <th class="name" scope="row"><span class="sysname">Linux + Tools</span><span class="meta">Docker, VMs, SLSA, Nix, policy</span></th>
+              <td class="mark gs" title="Partial — Many separate APIs"><span class="i partial" role="img" aria-label="Partial — Many separate APIs"></span></td>
+              <td class="mark" title="Composable — Audit and provenance can be added"><span class="i external" role="img" aria-label="Composable — Audit and provenance can be added"></span></td>
+              <td class="mark" title="Composable — Must be built separately"><span class="i external" role="img" aria-label="Composable — Must be built separately"></span></td>
+              <td class="mark" title="Partial — Depends on the API in use"><span class="i partial" role="img" aria-label="Partial — Depends on the API in use"></span></td>
+              <td class="mark gs" title="Composable — Requires a pipeline"><span class="i external" role="img" aria-label="Composable — Requires a pipeline"></span></td>
+              <td class="mark" title="Composable — SLSA and Binary Authorization"><span class="i external" role="img" aria-label="Composable — SLSA and Binary Authorization"></span></td>
+              <td class="mark" title="Composable — GitOps or admission controls"><span class="i external" role="img" aria-label="Composable — GitOps or admission controls"></span></td>
+              <td class="mark" title="Composable — Requires a policy engine"><span class="i external" role="img" aria-label="Composable — Requires a policy engine"></span></td>
+              <td class="mark gs" title="Composable — seccomp, SELinux, and VMs"><span class="i external" role="img" aria-label="Composable — seccomp, SELinux, and VMs"></span></td>
+              <td class="mark" title="Composable — Policy plus restart"><span class="i external" role="img" aria-label="Composable — Policy plus restart"></span></td>
+              <td class="mark gs" title="Composable — Nix or OSTree; state separate"><span class="i external" role="img" aria-label="Composable — Nix or OSTree; state separate"></span></td>
+              <td class="mark" title="Composable — Composable, not unified"><span class="i external" role="img" aria-label="Composable — Composable, not unified"></span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="inspect" id="inspect" aria-live="polite">
+        <p class="inspect-empty">Hover over any mark to see the reasoning here &mdash; click to pin it.</p>
+      </div>
+    </div>
+
+    <aside class="takeaway" aria-label="Interpretation">
+      <span class="takeaway-label">The actual bet</span>
+      <p>
+        <strong>Singularity comes closest to the architectural idea.</strong>
+        A Linux stack can assemble nearly every individual part today.
+        raiOS asks whether the complete chain can become a smaller, understandable,
+        non-optional authority model of the OS itself. Partial, in progress, and
+        composable each mean the capability is not a complete built-in one.
+      </p>
+    </aside>
+
+    <aside class="legend" aria-label="Legend">
+      <h2 class="legend-title">How to read</h2>
+      <div class="key native">
+        <span class="i native" aria-hidden="true"></span>
+        <div><b>Native</b><span class="desc">Built in, a central part of the system model.</span></div>
+      </div>
+      <div class="key partial">
+        <span class="i partial" aria-hidden="true"></span>
+        <div><b>Partial</b><span class="desc">Partly covered today; present but incomplete.</span></div>
+      </div>
+      <div class="key work">
+        <span class="i work" aria-hidden="true"></span>
+        <div><b>In progress</b><span class="desc">Defined and actively being built in raiOS.</span></div>
+      </div>
+      <div class="key external">
+        <span class="i external" aria-hidden="true"></span>
+        <div><b>Composable</b><span class="desc">Can be assembled from external tools.</span></div>
+      </div>
+      <div class="key missing">
+        <span class="i missing" aria-hidden="true"></span>
+        <div><b>Missing</b><span class="desc">No equivalent in the system.</span></div>
+      </div>
+    </aside>
+
+    <details>
+      <summary>All assessments in full</summary>
+      <ol class="reasons-list">
+        <li><b>Query live state in a structured form</b>
+          <ul>
+            <li><span class="sys">raiOS</span> <span class="st partial">Partial</span> &mdash; Snapshots, devices, and problems</li>
+            <li><span class="sys">Singularity</span> <span class="st partial">Partial</span> &mdash; Strong manifests, limited live view</li>
+            <li><span class="sys">Sculpt</span> <span class="st native">Native</span> &mdash; Live component graph</li>
+            <li><span class="sys">Fuchsia</span> <span class="st native">Native</span> &mdash; Topology and Inspect</li>
+            <li><span class="sys">Qubes OS</span> <span class="st partial">Partial</span> &mdash; VM and domain view</li>
+            <li><span class="sys">Linux + Tools</span> <span class="st partial">Partial</span> &mdash; Many separate APIs</li>
+          </ul>
+        </li>
+        <li><b>Source and confidence of each claim are visible</b>
+          <ul>
+            <li><span class="sys">raiOS</span> <span class="st work">In progress</span> &mdash; Evidence schema exists</li>
+            <li><span class="sys">Singularity</span> <span class="st partial">Partial</span> &mdash; Manifest and digest</li>
+            <li><span class="sys">Sculpt</span> <span class="st partial">Partial</span> &mdash; Report origin is visible</li>
+            <li><span class="sys">Fuchsia</span> <span class="st partial">Partial</span> &mdash; Moniker and diagnostic source</li>
+            <li><span class="sys">Qubes OS</span> <span class="st missing">Missing</span> &mdash; No shared authority hierarchy</li>
+            <li><span class="sys">Linux + Tools</span> <span class="st external">Composable</span> &mdash; Audit and provenance can be added</li>
+          </ul>
+        </li>
+        <li><b>Shows the agent what was omitted</b>
+          <ul>
+            <li><span class="sys">raiOS</span> <span class="st native">Native</span> &mdash; Context, sources, and reasons</li>
+            <li><span class="sys">Singularity</span> <span class="st missing">Missing</span> &mdash; No agent-context protocol</li>
+            <li><span class="sys">Sculpt</span> <span class="st missing">Missing</span> &mdash; No agent-context protocol</li>
+            <li><span class="sys">Fuchsia</span> <span class="st missing">Missing</span> &mdash; No agent-context protocol</li>
+            <li><span class="sys">Qubes OS</span> <span class="st missing">Missing</span> &mdash; No agent-context protocol</li>
+            <li><span class="sys">Linux + Tools</span> <span class="st external">Composable</span> &mdash; Must be built separately</li>
+          </ul>
+        </li>
+        <li><b>Observation cannot grant authority</b>
+          <ul>
+            <li><span class="sys">raiOS</span> <span class="st native">Native</span> &mdash; Separated in the response type</li>
+            <li><span class="sys">Singularity</span> <span class="st partial">Partial</span> &mdash; Gatekeeper decides separately</li>
+            <li><span class="sys">Sculpt</span> <span class="st native">Native</span> &mdash; A report is not a capability</li>
+            <li><span class="sys">Fuchsia</span> <span class="st native">Native</span> &mdash; Inspect does not route capabilities</li>
+            <li><span class="sys">Qubes OS</span> <span class="st native">Native</span> &mdash; Reading state does not alter policy</li>
+            <li><span class="sys">Linux + Tools</span> <span class="st partial">Partial</span> &mdash; Depends on the API in use</li>
+          </ul>
+        </li>
+        <li><b>Code remains inert until the gate</b>
+          <ul>
+            <li><span class="sys">raiOS</span> <span class="st work">In progress</span> &mdash; Contract defined; loop not closed</li>
+            <li><span class="sys">Singularity</span> <span class="st native">Native</span> &mdash; Starts only with a manifest</li>
+            <li><span class="sys">Sculpt</span> <span class="st partial">Partial</span> &mdash; Deployment configuration</li>
+            <li><span class="sys">Fuchsia</span> <span class="st partial">Partial</span> &mdash; Package and manifest</li>
+            <li><span class="sys">Qubes OS</span> <span class="st partial">Partial</span> &mdash; Isolation rather than promotion</li>
+            <li><span class="sys">Linux + Tools</span> <span class="st external">Composable</span> &mdash; Requires a pipeline</li>
+          </ul>
+        </li>
+        <li><b>Decision is bound to the exact tested hash</b>
+          <ul>
+            <li><span class="sys">raiOS</span> <span class="st work">In progress</span> &mdash; Reports and hashes exist</li>
+            <li><span class="sys">Singularity</span> <span class="st partial">Partial</span> &mdash; Digest without a test tuple</li>
+            <li><span class="sys">Sculpt</span> <span class="st missing">Missing</span> &mdash; Signature, not test binding</li>
+            <li><span class="sys">Fuchsia</span> <span class="st partial">Partial</span> &mdash; Merkle ID without test binding</li>
+            <li><span class="sys">Qubes OS</span> <span class="st missing">Missing</span> &mdash; Policy applies to the domain</li>
+            <li><span class="sys">Linux + Tools</span> <span class="st external">Composable</span> &mdash; SLSA and Binary Authorization</li>
+          </ul>
+        </li>
+        <li><b>Owner approves this exact artifact</b>
+          <ul>
+            <li><span class="sys">raiOS</span> <span class="st work">In progress</span> &mdash; Approval schema exists</li>
+            <li><span class="sys">Singularity</span> <span class="st missing">Missing</span> &mdash; Policy rather than hash approval</li>
+            <li><span class="sys">Sculpt</span> <span class="st partial">Partial</span> &mdash; Owner chooses start or installation</li>
+            <li><span class="sys">Fuchsia</span> <span class="st missing">Missing</span> &mdash; No local promotion gate</li>
+            <li><span class="sys">Qubes OS</span> <span class="st partial">Partial</span> &mdash; Ask per action, not per artifact</li>
+            <li><span class="sys">Linux + Tools</span> <span class="st external">Composable</span> &mdash; GitOps or admission controls</li>
+          </ul>
+        </li>
+        <li><b>A missing prerequisite is identified structurally</b>
+          <ul>
+            <li><span class="sys">raiOS</span> <span class="st partial">Partial</span> &mdash; Some denials are still generic</li>
+            <li><span class="sys">Singularity</span> <span class="st partial">Partial</span> &mdash; Verifier and gate</li>
+            <li><span class="sys">Sculpt</span> <span class="st partial">Partial</span> &mdash; Reports and logs</li>
+            <li><span class="sys">Fuchsia</span> <span class="st partial">Partial</span> &mdash; Routing diagnostics</li>
+            <li><span class="sys">Qubes OS</span> <span class="st partial">Partial</span> &mdash; Allow, deny, or ask</li>
+            <li><span class="sys">Linux + Tools</span> <span class="st external">Composable</span> &mdash; Requires a policy engine</li>
+          </ul>
+        </li>
+        <li><b>Minimal authority per service</b>
+          <ul>
+            <li><span class="sys">raiOS</span> <span class="st partial">Partial</span> &mdash; Wasm imports and grants</li>
+            <li><span class="sys">Singularity</span> <span class="st native">Native</span> &mdash; SIPs and contract channels</li>
+            <li><span class="sys">Sculpt</span> <span class="st native">Native</span> &mdash; Capability routing</li>
+            <li><span class="sys">Fuchsia</span> <span class="st native">Native</span> &mdash; Capability routing</li>
+            <li><span class="sys">Qubes OS</span> <span class="st partial">Partial</span> &mdash; At VM and RPC level</li>
+            <li><span class="sys">Linux + Tools</span> <span class="st external">Composable</span> &mdash; seccomp, SELinux, and VMs</li>
+          </ul>
+        </li>
+        <li><b>Authority can be revoked precisely</b>
+          <ul>
+            <li><span class="sys">raiOS</span> <span class="st partial">Partial</span> &mdash; Limited revoke paths</li>
+            <li><span class="sys">Singularity</span> <span class="st partial">Partial</span> &mdash; Process and gate</li>
+            <li><span class="sys">Sculpt</span> <span class="st native">Native</span> &mdash; Stop and reroute</li>
+            <li><span class="sys">Fuchsia</span> <span class="st partial">Partial</span> &mdash; Lifecycle and realm</li>
+            <li><span class="sys">Qubes OS</span> <span class="st native">Native</span> &mdash; RPC, network, and domain</li>
+            <li><span class="sys">Linux + Tools</span> <span class="st external">Composable</span> &mdash; Policy plus restart</li>
+          </ul>
+        </li>
+        <li><b>Rollback covers code, authority, and state</b>
+          <ul>
+            <li><span class="sys">raiOS</span> <span class="st work">In progress</span> &mdash; One transaction is the target</li>
+            <li><span class="sys">Singularity</span> <span class="st missing">Missing</span> &mdash; No unified rollback</li>
+            <li><span class="sys">Sculpt</span> <span class="st partial">Partial</span> &mdash; System and configuration</li>
+            <li><span class="sys">Fuchsia</span> <span class="st partial">Partial</span> &mdash; A/B system update</li>
+            <li><span class="sys">Qubes OS</span> <span class="st partial">Partial</span> &mdash; Volume revert; policy separate</li>
+            <li><span class="sys">Linux + Tools</span> <span class="st external">Composable</span> &mdash; Nix or OSTree; state separate</li>
+          </ul>
+        </li>
+        <li><b>One protocol spans the entire chain</b>
+          <ul>
+            <li><span class="sys">raiOS</span> <span class="st work">In progress</span> &mdash; Parts already implemented</li>
+            <li><span class="sys">Singularity</span> <span class="st partial">Partial</span> &mdash; Manifest centered</li>
+            <li><span class="sys">Sculpt</span> <span class="st missing">Missing</span> &mdash; Reports, config, and depot are separate</li>
+            <li><span class="sys">Fuchsia</span> <span class="st missing">Missing</span> &mdash; Multiple frameworks</li>
+            <li><span class="sys">Qubes OS</span> <span class="st missing">Missing</span> &mdash; Isolation and policy are the focus</li>
+            <li><span class="sys">Linux + Tools</span> <span class="st external">Composable</span> &mdash; Composable, not unified</li>
+          </ul>
+        </li>
+      </ol>
+    </details>
+
+    <details>
+      <summary>Sources and assessment basis</summary>
+      <ul class="sources">
+        <li><a href="docs/architecture/self-explaining-system-report-2026-07-24.md">raiOS architecture report</a></li>
+        <li><a href="https://www.microsoft.com/en-us/research/publication/singularity-rethinking-the-software-stack/">Microsoft Singularity</a></li>
+        <li><a href="https://genode.org/download/sculpt">Genode Sculpt OS</a></li>
+        <li><a href="https://fuchsia.dev/fuchsia-src/concepts/components/v2">Fuchsia Components</a></li>
+        <li><a href="https://doc.qubes-os.org/en/latest/developer/services/qrexec.html">Qubes qrexec</a></li>
+        <li><a href="https://slsa.dev/spec/v1.2/build-provenance">SLSA Provenance</a></li>
+        <li><a href="https://in-toto.io/docs/getting-started/">in-toto</a></li>
+        <li><a href="https://docs.cloud.google.com/docs/security/binary-authorization-for-borg">Binary Authorization</a></li>
+        <li><a href="https://component-model.bytecodealliance.org/design/worlds.html">Wasm Component Model</a></li>
+      </ul>
+    </details>
+
+    <p class="footnote">
+      Historical architecture comparison as of July 24, 2026. This is not a
+      security certification or current implementation record. A green mark means
+      the capability was assessed as a central part of the system model, not that
+      it is accepted, complete, currently evidenced, or formally proven.
+    </p>
+  </main>
+
+  <script>
+    (() => {
+      const WORDS = { native: "Native", partial: "Partial", work: "In progress", external: "Composable", missing: "Missing" };
+      const CLASSES = Object.keys(WORDS);
+      const inspect = document.getElementById("inspect");
+      const defaultHTML = inspect.innerHTML;
+      const labels = [...document.querySelectorAll("th.crit")];
+      let pinned = null;
+
+      const cellInfo = (td) => {
+        const tr = td.closest("tr");
+        const sys = tr.querySelector(".sysname").textContent;
+        const icon = td.querySelector(".i");
+        const cls = CLASSES.find((c) => icon.classList.contains(c));
+        const aria = icon.getAttribute("aria-label") || "";
+        const parts = aria.split(/—|–|-{2}/);
+        const reason = parts[1] ? parts[1].trim() : "";
+        const idx = [...tr.children].indexOf(td);
+        const crit = labels[idx - 1] ? labels[idx - 1].textContent.trim() : "";
+        return { sys, cls, word: WORDS[cls], reason, crit };
+      };
+
+      const render = (info) => {
+        inspect.innerHTML =
+          '<span class="i ' + info.cls + '" aria-hidden="true"></span>' +
+          "<p><b>" + info.sys + "</b> &middot; <span class=\"crit-name\">" + info.crit + "</span>" +
+          " &nbsp;&rarr;&nbsp; <span class=\"st " + info.cls + "\">" + info.word + "</span>" +
+          " &mdash; " + info.reason + "</p>";
+      };
+
+      const reset = () => { inspect.innerHTML = defaultHTML; };
+
+      const thead = document.querySelector("thead");
+      const colToggle = (idx, on) => {
+        document.querySelectorAll("tbody tr").forEach((tr) => {
+          const c = tr.children[idx];
+          if (c) c.classList.toggle("hl", on);
+        });
+        if (labels[idx - 1]) labels[idx - 1].classList.toggle("hl", on);
+        thead.classList.toggle("peeking", on);
+      };
+
+      document.querySelectorAll("td.mark").forEach((td) => {
+        td.removeAttribute("title");
+        const idx = [...td.parentElement.children].indexOf(td);
+        td.addEventListener("mouseenter", () => { if (!pinned) render(cellInfo(td)); colToggle(idx, true); });
+        td.addEventListener("mouseleave", () => { if (!pinned) reset(); colToggle(idx, false); });
+        td.addEventListener("click", () => {
+          if (pinned === td) {
+            pinned = null;
+            td.classList.remove("pinned");
+            render(cellInfo(td));
+          } else {
+            if (pinned) pinned.classList.remove("pinned");
+            pinned = td;
+            td.classList.add("pinned");
+            render(cellInfo(td));
+          }
+        });
+      });
+
+      labels.forEach((th, i) => {
+        th.addEventListener("mouseenter", () => colToggle(i + 1, true));
+        th.addEventListener("mouseleave", () => colToggle(i + 1, false));
+      });
+    })();
+  </script>
+</body>
+</html>
