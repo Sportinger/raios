@@ -84,8 +84,8 @@ mod event_log_provider_selftest;
 mod event_log_types;
 mod framebuffer;
 mod granted_candidate_service;
-mod hello_service;
 mod heap;
+mod hello_service;
 mod input;
 mod iommu_vtd;
 #[allow(dead_code)]
@@ -101,8 +101,8 @@ mod openai_trust;
 mod owner_key;
 mod pci;
 mod personal_shell_service;
-mod program_workspace;
 mod program_persistence;
+mod program_workspace;
 mod project_app_autoload;
 mod project_build;
 mod project_dependency;
@@ -492,12 +492,11 @@ impl PeriodicTasks {
                                     console::write_project_outcome(event.id, outcome);
                                 }
                                 provider::RequestTarget::ProjectFeedbackWorkspace => {
-                                    let outcome =
-                                        agent_build_loop::accept_provider_feedback_answer(
-                                            event.id,
-                                            answer.as_str(),
-                                            provenance,
-                                        );
+                                    let outcome = agent_build_loop::accept_provider_feedback_answer(
+                                        event.id,
+                                        answer.as_str(),
+                                        provenance,
+                                    );
                                     console::write_project_outcome(event.id, outcome);
                                 }
                             },
