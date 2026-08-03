@@ -7,7 +7,11 @@ param(
     [int]$SerialWriteDelayMilliseconds = 0,
     [switch]$KeepRunDir,
     [switch]$ProgramPersistence,
-    [switch]$GrantProjectionOnly
+    [switch]$GrantProjectionOnly,
+    [switch]$RollbackGrantDeltaOnly,
+    [switch]$RollbackBoundaryOnly,
+    [ValidateSet("all", "intent", "revoke", "commit")]
+    [string]$RollbackBoundaryPhase = "all"
 )
 
 $ErrorActionPreference = "Stop"
@@ -16,7 +20,8 @@ $RepoRoot = Split-Path -Parent $PSScriptRoot
 $RunScript = Join-Path $RepoRoot "scripts\run-stage0-qemu.ps1"
 $PackageScript = Join-Path $RepoRoot "scripts\package-stage0.ps1"
 $Builder = Join-Path $RepoRoot "scripts\make-gpt-persist-image.py"
-$RunKind = if ($GrantProjectionOnly) { "grant-reboot" } else { "persistence-reboot" }
+$RollbackFixtureMode = $RollbackGrantDeltaOnly -or $RollbackBoundaryOnly
+$RunKind = if ($RollbackBoundaryOnly) { "rollback-boundaries" } elseif ($RollbackGrantDeltaOnly) { "rollback-grant-delta" } elseif ($GrantProjectionOnly) { "grant-reboot" } else { "persistence-reboot" }
 $RunId = "shadow-$RunKind-{0:yyyyMMdd-HHmmss}-{1}" -f (Get-Date), $PID
 $RunDir = Join-Path $env:TEMP "raios-$RunId"
 $SerialLog = Join-Path $RunDir "serial-merged.log"
@@ -43,6 +48,7 @@ $ResolvedImage = $null
 $ScratchImage = $null
 $AuditRollbackTargetImage = $null
 $PersistDiskImage = $null
+$InitialRollbackFixtureSnapshot = $null
 $ResolvedArtifact = $null
 $ResolvedManifest = $null
 $ManifestValidation = $null
@@ -187,6 +193,77 @@ function Get-PersistInspection {
         throw "Persist image inspection failed: $Path"
     }
     return ($json -join [Environment]::NewLine) | ConvertFrom-Json
+}
+
+function Assert-RollbackMutationReclogUnchanged {
+    param(
+        [string]$Prefix,
+        [string]$ServiceId,
+        [object]$BeforeInspection,
+        [object]$AfterInspection
+    )
+
+    # Serial output cannot prove that a storage write did not happen.  Compare
+    # the host-inspected, immutable RECLOG frames themselves: the service-scoped
+    # rollback transaction multiset must be identical and no new rollback frame
+    # of any service may appear after the denied command/boot boundary.
+    $rollbackPredicates = @(
+        "wasm_import.rollback_intent.v1",
+        "wasm_import.revoked.v1",
+        "wasm_import.rollback_commit.v1"
+    )
+    $beforeFrames = @($BeforeInspection.reclog_frames | Sort-Object seq)
+    $afterFrames = @($AfterInspection.reclog_frames | Sort-Object seq)
+    $beforeServiceFrames = @($beforeFrames | Where-Object {
+        $_.payload_json.predicate -in $rollbackPredicates -and
+        ($_.payload_json.entity -eq $ServiceId -or $_.payload_json.value.service_id -eq $ServiceId)
+    })
+    $afterServiceFrames = @($afterFrames | Where-Object {
+        $_.payload_json.predicate -in $rollbackPredicates -and
+        ($_.payload_json.entity -eq $ServiceId -or $_.payload_json.value.service_id -eq $ServiceId)
+    })
+    $beforeFrameIdentity = @($beforeServiceFrames | ForEach-Object {
+        "{0}|{1}|{2}|{3}|{4}" -f $_.seq, $_.frame_sha256, $_.payload_sha256,
+            $_.payload_json.predicate, $_.payload_json.value.transaction_id
+    } | Sort-Object)
+    $afterFrameIdentity = @($afterServiceFrames | ForEach-Object {
+        "{0}|{1}|{2}|{3}|{4}" -f $_.seq, $_.frame_sha256, $_.payload_sha256,
+            $_.payload_json.predicate, $_.payload_json.value.transaction_id
+    } | Sort-Object)
+    $serviceMultisetUnchanged = $beforeFrameIdentity.Count -eq $afterFrameIdentity.Count -and
+        @(Compare-Object -ReferenceObject $beforeFrameIdentity -DifferenceObject $afterFrameIdentity -SyncWindow 0).Count -eq 0
+    $prefixUnchanged = $afterFrames.Count -ge $beforeFrames.Count
+    for ($index = 0; $prefixUnchanged -and $index -lt $beforeFrames.Count; $index++) {
+        $prefixUnchanged = [int64]$beforeFrames[$index].seq -eq [int64]$afterFrames[$index].seq -and
+            $beforeFrames[$index].frame_sha256 -eq $afterFrames[$index].frame_sha256 -and
+            $beforeFrames[$index].payload_sha256 -eq $afterFrames[$index].payload_sha256
+    }
+    $newRollbackFrames = @($afterFrames | Where-Object {
+        [int64]$_.seq -gt [int64]$BeforeInspection.reclog_scan.tail_seq -and
+        $_.payload_json.predicate -in $rollbackPredicates
+    })
+    $durableNoMutation = $BeforeInspection.reclog_scan.status -eq "valid" -and
+        $AfterInspection.reclog_scan.status -eq "valid" -and
+        $prefixUnchanged -and $serviceMultisetUnchanged -and $newRollbackFrames.Count -eq 0
+    $actual = [ordered]@{
+        before_scan = $BeforeInspection.reclog_scan
+        after_scan = $AfterInspection.reclog_scan
+        service_id = $ServiceId
+        before_service_rollback_frame_count = $beforeServiceFrames.Count
+        after_service_rollback_frame_count = $afterServiceFrames.Count
+        service_rollback_frame_multiset_unchanged = $serviceMultisetUnchanged
+        preexisting_service_rollback_frames = $beforeFrameIdentity
+        post_service_rollback_frames = $afterFrameIdentity
+        new_intent_revoke_commit_frames = $newRollbackFrames
+        precommand_frame_prefix_unchanged = $prefixUnchanged
+    }
+    Assert-ReportPredicate -Prefix $Prefix -Name "durable-reclog-no-rollback-mutation" -Expected "host-safe post-denial RECLOG preserves the exact service rollback intent/revoke/commit multiset and appends zero new rollback frames" -Passed $durableNoMutation -Actual $(Convert-CompactJson $actual 20) -FailureMessage "$Prefix appended or altered a durable rollback intent/revoke/commit frame after denial"
+    return [pscustomobject]@{
+        Passed = $durableNoMutation
+        BeforeServiceFrames = $beforeServiceFrames
+        AfterServiceFrames = $afterServiceFrames
+        NewRollbackFrames = $newRollbackFrames
+    }
 }
 
 function Invoke-PersistTool {
@@ -494,6 +571,11 @@ function Start-RaiosVm {
     if (-not $qemuPid) {
         throw "Could not parse QEMU pid from runner output for $Label"
     }
+    Start-Sleep -Milliseconds 100
+    if (-not (Get-Process -Id $qemuPid -ErrorAction SilentlyContinue)) {
+        $earlyError = Get-Content -LiteralPath "$log.err.txt" -Raw -ErrorAction SilentlyContinue
+        throw "harness_infrastructure_failure: QEMU exited before serial readiness for ${Label}: $earlyError"
+    }
     $script:QemuPid = $qemuPid
     try {
         $script:QemuProcess = Get-Process -Id $qemuPid -ErrorAction Stop
@@ -678,6 +760,17 @@ function Assert-Boot1ActivationAndInstall {
     Assert-ReportPredicate -Prefix "boot1" -Name "b12c-w7-run-once" -Expected "the exact W7/receiver/M6 binding runs once after its physical approval and has zero durable effect before W6" -Passed $runOnce -Actual $(if ($runOnce) { "candidate=$($Activation.CandidateSha256) run_count=1 durable=false" } else { Convert-CompactJson $Activation 24 }) -FailureMessage "Boot 1 did not establish the exact one-shot W7/M6 activation"
 
     $installWindowLog = (Get-SerialLogContent -Path $SerialLog).Substring([int]$Install.InstallOffset)
+    $newRecords = @($Install.PostReclogScan.records | Where-Object { [int64]$_.seq -gt [int64]$Install.PreReclogScan.tail_seq } | Sort-Object seq)
+    $focusedFrameShape = -not $RollbackFixtureMode -or (
+        $newRecords.Count -eq 5 -and
+        $newRecords[0].schema -eq "raios.install_authorization.v0" -and
+        $newRecords[1].schema -eq "raios.promotion_transaction.v0" -and
+        $newRecords[2].schema -eq "raios.artifact_persist.v0" -and
+        $newRecords[3].schema -eq "raios.memory_record.v0" -and
+        $newRecords[4].schema -eq "raios.memory_record.v0" -and
+        $newRecords[1].frame_sha256 -eq $Install.PromotionTransactionSha256 -and
+        $newRecords[2].frame_sha256 -eq $Install.ArtifactPersistFrameSha256
+    )
     $installed = $Install.CandidateSha256 -eq $Activation.CandidateSha256 -and
         $Install.W7ReceiptSha256 -eq $Activation.W7ReceiptSha256 -and
         $Install.ActivationApprovalSha256 -eq $Activation.ActivationChallengeSha256 -and
@@ -700,7 +793,8 @@ function Assert-Boot1ActivationAndInstall {
         $binding.local_attestation.artifact_reference_hash -eq $Activation.M6ArtifactReferenceSha256 -and
         $binding.local_attestation.vm_report_reference_hash -eq $Activation.M6VmReportReferenceSha256 -and
         $binding.local_attestation.attestation_reference_hash -eq $Activation.M6AttestationReferenceSha256 -and
-        [int64]$Install.PostReclogScan.count -eq ([int64]$Install.PreReclogScan.count + 3) -and
+        [int64]$Install.PostReclogScan.count -eq ([int64]$Install.PreReclogScan.count + $(if ($RollbackFixtureMode) { 5 } else { 3 })) -and
+        $focusedFrameShape -and
         [int64]$Install.Sequence -eq ([int64]$Install.PreReclogScan.tail_seq + 2) -and
         $Install.RunCount -eq 1 -and $Install.DurableWrites -eq $true -and
         ($Activation.ClickCount + $Install.ClickCount) -eq 3 -and
@@ -711,6 +805,49 @@ function Assert-Boot1ActivationAndInstall {
         ([regex]::Matches($installWindowLog, [regex]::Escape("WASM_GUEST_LOG echo counter="))).Count -eq 0 -and
         ([regex]::Matches($installWindowLog, [regex]::Escape("GRANTED_CANDIDATE_INSTALL_COMMIT result=accepted"))).Count -eq 1
     Assert-ReportPredicate -Prefix "boot1" -Name "w6-second-click-installed" -Expected "a distinct W6 pointer approval appends authorization/promote/artifact frames for the exact running W7 candidate without a second run" -Passed $installed -Actual $(if ($installed) { $Install.MarkerLine } else { Convert-CompactJson $Install 24 }) -FailureMessage "Boot 1 W6 install did not commit the exact one-shot W7 candidate"
+}
+
+function Assert-RollbackSourceGrantFrames {
+    param([object]$Inspection, [object]$Activation, [object]$Install)
+    $frames = @($Inspection.reclog_frames | Sort-Object seq)
+    $auth = @($frames | Where-Object { [int64]$_.seq -eq ([int64]$Install.Sequence - 1) })[0]
+    $promote = @($frames | Where-Object { [int64]$_.seq -eq [int64]$Install.Sequence })[0]
+    $persist = @($frames | Where-Object { [int64]$_.seq -eq ([int64]$Install.Sequence + 1) })[0]
+    $grants = @($frames | Where-Object { [int64]$_.seq -in @(([int64]$Install.Sequence + 2), ([int64]$Install.Sequence + 3)) })
+    $surfaces = @($grants | ForEach-Object { $_.payload_json.value.host_import_id } | Sort-Object)
+    $bound = $grants.Count -eq 2
+    foreach ($grant in $grants) {
+        $bound = $bound -and $grant.payload_json.predicate -eq "wasm_import.granted.v1" -and
+            $grant.payload_json.value.service_id -eq "svc.dev.granted_candidate" -and
+            [int64]$grant.payload_json.value.domain_instance -eq 1 -and
+            $grant.payload_json.value.binding_sha256 -eq "sha256:18c5db9cba3fe1471112505ffcb999e46cacc0ca89c10fe189865b3fa76e12fa"
+    }
+    $ok = $auth.payload_json.schema -eq "raios.install_authorization.v0" -and
+        [int64]$auth.payload_json.install_envelope_version -eq 2 -and
+        $auth.payload_json.install_candidate_sha256 -eq $Activation.CandidateSha256 -and
+        $auth.payload_json.computed_grant_sha256 -eq $Activation.M6ComputedGrantSha256 -and
+        $auth.payload_json.attestation_reference_sha256 -eq $Activation.M6AttestationReferenceSha256 -and
+        $auth.payload_json.grant_target_schema -eq "raios.grant_target_snapshot.v1" -and
+        [int64]$auth.payload_json.grant_target_count -eq 2 -and
+        $auth.payload_json.grant_target_snapshot_sha256 -match '^sha256:[0-9a-f]{64}$' -and
+        $promote.payload_json.schema -eq "raios.promotion_transaction.v0" -and
+        $promote.payload_json.install_authorization_frame_sha256 -eq "sha256:$($auth.frame_sha256)" -and
+        [int64]$promote.payload_json.install_envelope_version -eq 2 -and
+        $promote.payload_json.grant_target_schema -eq $auth.payload_json.grant_target_schema -and
+        [int64]$promote.payload_json.grant_target_count -eq 2 -and
+        $promote.payload_json.grant_target_snapshot_sha256 -eq $auth.payload_json.grant_target_snapshot_sha256 -and
+        $persist.payload_json.schema -eq "raios.artifact_persist.v0" -and
+        $persist.payload_json.promotion_transaction_sha256 -eq "sha256:$($promote.frame_sha256)" -and
+        $persist.payload_json.service_id -eq $auth.payload_json.service_id -and
+        $persist.payload_json.artifact_sha256 -eq $auth.payload_json.install_candidate_sha256 -and
+        $persist.payload_json.grant_target_schema -eq $auth.payload_json.grant_target_schema -and
+        [int64]$persist.payload_json.grant_target_count -eq 2 -and
+        $persist.payload_json.grant_target_snapshot_sha256 -eq $auth.payload_json.grant_target_snapshot_sha256 -and
+        $persist.payload_json.artifact_sha256 -eq $Activation.CandidateSha256 -and $bound -and
+        $grants[0].payload_json.value.host_import_id -eq "env.log" -and
+        $grants[1].payload_json.value.host_import_id -eq "env.counter_get" -and
+        $surfaces.Count -eq 2 -and $surfaces[0] -eq "env.counter_get" -and $surfaces[1] -eq "env.log"
+    Assert-ReportPredicate -Prefix "boot1" -Name "source-five-frame-binding" -Expected "the five new frames carry one exact signed V2 service+artifact+grant+attestation+two-import snapshot authorization, linked promote/persist, then bound env.log and env.counter_get grants" -Passed $ok -Actual $(Convert-CompactJson ([ordered]@{ authorization = $auth; promote = $promote; persist = $persist; grants = $grants }) 22) -FailureMessage "Boot 1 source five-frame sequence was not exactly typed and V2-bound"
 }
 
 function Assert-Boot1HostProvenance {
@@ -853,6 +990,437 @@ function Assert-Boot2Rollback {
     $dump = [ordered]@{ preview = $previewResponse; apply = $applyResponse; scan = $scanResponse }
     Assert-ReportPredicate -Prefix "boot2" -Name "rollback-restores-and-persists" -Expected "rollback restores the exact pre-load inventory and appends a readback-verified linked unpromote as the newest RECLOG frame" -Passed $ok -Actual $(if ($ok) { "restored=$($verification.reprojected_service_inventory_hash) unpromote=$($unpromote.frame_sha256)" } else { Convert-CompactJson $dump 28 }) -FailureMessage "Boot 2 rollback did not restore and persist the unpromote"
     return [pscustomobject]@{ FrameSha256 = [string]$unpromote.frame_sha256; GuestScan = $scan; Response = $applyResponse }
+}
+
+function Invoke-RollbackGrantDeltaApply {
+    $before = Get-SerialLogOffset
+    Send-AgentCommandTagged -Prefix "rollback" -Command "service.rollback_apply svc.dev.granted_candidate" -ExpectedMarker "RAIOS_AGENT_END service.rollback_apply" -Name "apply"
+    $response = Get-LastAgentResponseJson -Method "service.rollback_apply"
+    $result = $response.body.result
+    $window = (Get-SerialLogContent -Path $SerialLog).Substring([int]$before)
+    $markers = [regex]::Matches($window, 'RAIOS_ROLLBACK_GRANT result=accepted transaction=([0-9a-f]{64}) delta=1 intent=1 revokes=1 commit=1 ram_install=1 counter_denied=1 host_effect_delta=0 teardown_after_commit=1 target_reverified=1 rebuilt=1')
+    $ok = $markers.Count -eq 1 -and
+        $result.code -eq "ok" -and
+        $result.reason -eq "rollback_grant_delta_committed_before_rebuild" -and
+        $result.loaded -eq $true -and $result.running -eq $true -and
+        $result.rollback_apply_authorized -eq $true -and
+        $window.Contains("WASM_GUEST_LOG rollback target log-only")
+    Assert-ReportPredicate -Prefix "rollback" -Name "delta-commit-before-rebuild" -Expected "one signed counter-grant revoke is durably committed and RAM-installed, the real counter gate denies with zero effect, then the unchanged M6 path starts the log-only predecessor" -Passed $ok -Actual $(if ($ok) { $markers[0].Value } else { Convert-CompactJson ([ordered]@{ response = $response; window = $window }) 20 }) -FailureMessage "Rollback grant delta did not commit and rebuild in the required order"
+
+    Send-AgentCommandTagged -Prefix "rollback" -Command "host_import.selftest" -ExpectedMarker "RAIOS_HOSTIMPORT selftest=pass" -Name "peer-isolation"
+
+    $retryBefore = Get-SerialLogOffset
+    Send-AgentCommandTagged -Prefix "rollback" -Command "service.rollback_apply svc.dev.granted_candidate" -ExpectedMarker "RAIOS_AGENT_END service.rollback_apply" -Name "retry-after-commit"
+    $retry = Get-LastAgentResponseJson -Method "service.rollback_apply"
+    $retryWindow = (Get-SerialLogContent -Path $SerialLog).Substring([int]$retryBefore)
+    $retryOk = $retry.body.result.code -eq "capability_denied" -and
+        $retry.body.result.reason -in @("rollback_transaction_already_committed", "no_recorded_promotion_to_roll_back") -and
+        $retry.body.result.loaded -eq $true -and $retry.body.result.running -eq $true -and
+        -not $retryWindow.Contains("RAIOS_ROLLBACK_GRANT result=accepted")
+    Assert-ReportPredicate -Prefix "rollback" -Name "committed-retry-idempotent" -Expected "a retry after the committed transaction cannot reverse the rollback or append another accepted transaction" -Passed $retryOk -Actual $(Convert-CompactJson $retry 16) -FailureMessage "Committed rollback retry was not idempotently refused"
+    return [pscustomobject]@{ TransactionId = $markers[0].Groups[1].Value; Response = $response }
+}
+
+function Assert-RollbackGrantDeltaHostOrdering {
+    param([object]$Inspection)
+    $frames = @($Inspection.reclog_frames)
+    $intent = @($frames | Where-Object { $_.payload_json.predicate -eq "wasm_import.rollback_intent.v1" } | Select-Object -Last 1)[0]
+    $commit = @($frames | Where-Object { $_.payload_json.predicate -eq "wasm_import.rollback_commit.v1" } | Select-Object -Last 1)[0]
+    $revokes = @($frames | Where-Object { $_.payload_json.predicate -eq "wasm_import.revoked.v1" -and $_.payload_json.value.host_import_id -eq "env.counter_get" })
+    # This host RECLOG assertion is the durable idempotence authority.
+    $ordered = $Inspection.reclog_scan.status -eq "valid" -and $null -ne $intent -and $null -ne $commit -and
+        $revokes.Count -eq 1 -and [int64]$intent.seq -lt [int64]$revokes[0].seq -and [int64]$revokes[0].seq -lt [int64]$commit.seq
+    Assert-ReportPredicate -Prefix "rollback" -Name "host-chain-intent-revoke-commit" -Expected "host inspection sees a valid RECLOG with exactly one env.counter_get revoke strictly between intent and commit" -Passed $ordered -Actual $(Convert-CompactJson ([ordered]@{ scan = $Inspection.reclog_scan; intent = $intent; revokes = $revokes; commit = $commit }) 20) -FailureMessage "Rollback RECLOG ordering was not intent -> one counter revoke -> commit"
+}
+
+function Assert-RollbackTargetReboot {
+    $null = Wait-ForLogText -Path $SerialLog -Needle "GRANTED_CANDIDATE_PROVIDER_AUTOLOAD " -TimeoutSeconds $TimeoutSeconds
+    $marker = Get-ProviderAutoloadMarker -BeforeOffset (Get-SerialLogOffset)
+    $log = Get-SerialLogContent -Path $SerialLog
+    $ok = $marker.Result -eq "accepted" -and $marker.Phase -eq "autoloaded" -and
+        $marker.Reason -eq "rollback_commit_target_autoloaded" -and
+        $marker.CandidateSha256 -eq "sha256:33ea9dc8f8ecd039236673fafdffcf63e8691a1d352cffee4ddf47531cb5756c" -and
+        $marker.Loaded -and $marker.Running -and $marker.RunCount -eq 1 -and
+        $log.Contains("WASM_GUEST_LOG rollback target log-only") -and
+        -not $log.Contains("WASM_GUEST_LOG echo counter=")
+    Assert-ReportPredicate -Prefix "reboot" -Name "committed-target-autoload" -Expected "the committed exact predecessor re-verifies and emits its log after reboot while the revoked counter source does not run" -Passed $ok -Actual $(if ($ok) { $marker.Line } else { Convert-CompactJson ([ordered]@{ marker = $marker; log = $log }) 16 }) -FailureMessage "Committed rollback target did not survive reboot"
+    Send-AgentCommandTagged -Prefix "reboot" -Command "host_import.selftest" -ExpectedMarker "RAIOS_HOSTIMPORT selftest=pass" -Name "peer-isolation"
+}
+
+function Assert-RollbackFixtureMutationDenied {
+    param([string]$Label, [string]$MutationFlag, [int]$Port, [string]$ExpectedReason = "")
+    $childPersist = Join-Path $RunDir "persist-$Label.img"
+    $childVm = $null
+    $childFixturePid = 0
+    $baseResolvedImage = $script:ResolvedImage
+    Copy-Item -LiteralPath $InitialRollbackFixtureSnapshot -Destination $childPersist -Force
+    try {
+        $mutation = Invoke-PersistTool -Arguments @($MutationFlag, $childPersist)
+        $mutationImageHash = (Get-FileHash -LiteralPath $childPersist -Algorithm SHA256).Hash
+        $outer = Get-PersistInspection -Path $childPersist
+        Assert-ReportPredicate -Prefix $Label -Name "outer-chain-valid" -Expected "the semantic predecessor mutation preserves a fully valid outer RECLOG chain" -Passed ($outer.reclog_scan.status -eq "valid") -Actual $(Convert-CompactJson $outer.reclog_scan 8) -FailureMessage "$Label damaged the outer RECLOG chain"
+        if ($MutationFlag -eq "--duplicate-authenticated-install") {
+            $originalPayloads = @($mutation.original_payload_sha256)
+            $duplicatePayloads = @($mutation.duplicate_payload_sha256)
+            $payloadsMatch = $originalPayloads.Count -eq 3 -and $duplicatePayloads.Count -eq 3
+            for ($index = 0; $payloadsMatch -and $index -lt 3; $index++) {
+                $payloadsMatch = $originalPayloads[$index] -eq $duplicatePayloads[$index]
+            }
+            $mutationProof = $mutation.operation -eq "duplicate_authenticated_install" -and
+                $mutation.semantic_boundary -eq "rollback_target_authenticated_order_duplicate" -and
+                $mutation.signed_install_payloads_unchanged -eq $true -and
+                $mutation.duplicated_install_payloads_byte_identical -eq $true -and
+                $mutation.unsigned_reclog_framing_rechained -eq $true -and
+                $mutation.outer_reclog_chain_valid -eq $true -and
+                $mutation.post_reclog_scan.status -eq "valid" -and
+                @($mutation.original_seq).Count -eq 3 -and @($mutation.duplicate_seq).Count -eq 3 -and
+                $payloadsMatch
+            Assert-ReportPredicate -Prefix $Label -Name "authentic-triple-byte-preserved" -Expected "one linked authorization+promotion+persist triple is payload-byte-identical while only unsigned seq/prev/frame RECLOG framing is rechained" -Passed $mutationProof -Actual $(Convert-CompactJson $mutation 14) -FailureMessage "$Label did not prove byte-preserved signed install duplication"
+        }
+        foreach ($path in @($FixtureReadyPath, $FixtureResultPath, "$FixtureReadyPath.stdout.log", "$FixtureReadyPath.stderr.log")) {
+            Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue
+        }
+        $fixtureWrapper = Join-Path $PSScriptRoot "net8-w7-tls-fixture.ps1"
+        $null = & $fixtureWrapper -Action Start -ArtifactPath $ResolvedArtifact -ReadyPath $FixtureReadyPath -ResultPath $FixtureResultPath -ModePath $FixtureModePath
+        $fixtureDeadline = [DateTime]::UtcNow.AddSeconds(60)
+        while (-not (Test-Path -LiteralPath $FixtureReadyPath -PathType Leaf) -and [DateTime]::UtcNow -lt $fixtureDeadline) {
+            Start-Sleep -Milliseconds 50
+        }
+        if (-not (Test-Path -LiteralPath $FixtureReadyPath -PathType Leaf)) {
+            throw "$Label local W7 fixture did not become ready"
+        }
+        $childFixturePid = [int](Get-Content -LiteralPath $FixtureReadyPath -Raw | ConvertFrom-Json).process_id
+        $childReady = Get-Content -LiteralPath $FixtureReadyPath -Raw | ConvertFrom-Json
+        if ($childReady.spki_sha256 -notmatch '^[0-9a-f]{64}$') {
+            throw "harness_infrastructure_failure: $Label local fixture published an invalid SPKI"
+        }
+        $childPinEnvName = "RAIOS_NET8_W7_PIN_CHILD_$PID"
+        [Environment]::SetEnvironmentVariable($childPinEnvName, [string]$childReady.spki_sha256, "Process")
+        $childResolvedImage = Join-Path $RunDir "raios-stage0-$Label-pin.img"
+        & $PackageScript -Profile release -Image $childResolvedImage -UseTempEsp -EmbedNet8W7SpkiPinFromEnv -Net8W7SpkiPinEnvVar $childPinEnvName
+        [Environment]::SetEnvironmentVariable($childPinEnvName, $null, "Process")
+        if ($LASTEXITCODE -ne 0) {
+            throw "harness_infrastructure_failure: $Label pin-bearing stage packaging failed"
+        }
+        if ((Get-FileHash -LiteralPath $childPersist -Algorithm SHA256).Hash -ne $mutationImageHash) {
+            throw "harness_infrastructure_failure: $Label stage packaging changed the mutation image"
+        }
+        $script:ResolvedImage = $childResolvedImage
+        $childVm = Start-RaiosVm -Label $Label -PredicatePrefix $Label -Port $Port -MonitorPort ($Port + 100) -QmpPort ($Port + 200) -NetworkBoot -PersistPath $childPersist
+        $script:ResolvedImage = $baseResolvedImage
+        $qmpProbe = [System.Net.Sockets.TcpClient]::new()
+        try {
+            $qmpConnect = $qmpProbe.BeginConnect("127.0.0.1", ($Port + 200), $null, $null)
+            if (-not $qmpConnect.AsyncWaitHandle.WaitOne([TimeSpan]::FromSeconds(5))) {
+                throw "harness_infrastructure_failure: $Label QMP did not become ready"
+            }
+            $qmpProbe.EndConnect($qmpConnect)
+        }
+        finally {
+            $qmpProbe.Dispose()
+        }
+        $childActivation = @(Invoke-W7M6PhysicalActivation)[-1]
+        $childInstall = @(Invoke-SignedGrantedCandidateInstall -Activation $childActivation -NamePrefix $Label)[-1]
+        Send-AgentCommandTagged -Prefix $Label -Command "services" -ExpectedMarker "RAIOS_AGENT_END service.inventory" -Name "source-identity-before-denial"
+        $beforeInventory = Get-LastAgentResponseJson -Method "service.inventory"
+        $beforeSourceRows = @($beforeInventory.facts.services | Where-Object { $_.id -eq "svc.dev.granted_candidate" })
+        $beforeSourceRow = if ($beforeSourceRows.Count -eq 1) { $beforeSourceRows[0] } else { $null }
+        $beforeRollbackInspection = Get-PersistInspection -Path $childPersist
+        $sourceAuthorizationBefore = @($beforeRollbackInspection.reclog_frames | Where-Object {
+            [int64]$_.seq -eq ([int64]$childInstall.Sequence - 1)
+        })[0]
+        $sourcePersistFrameBefore = @($beforeRollbackInspection.reclog_frames | Where-Object {
+            "sha256:$($_.frame_sha256)" -eq $childInstall.ArtifactPersistFrameSha256
+        })[0]
+        $sourcePersistBefore = @($beforeRollbackInspection.artifact_persist_records | Where-Object {
+            "sha256:$($_.reclog_frame_sha256)" -eq $childInstall.ArtifactPersistFrameSha256
+        })[0]
+        $sourceGrantFramesBefore = @($beforeRollbackInspection.reclog_frames | Where-Object {
+            $_.payload_json.predicate -eq "wasm_import.granted.v1" -and
+            [int64]$_.seq -in @(([int64]$childInstall.Sequence + 2), ([int64]$childInstall.Sequence + 3))
+        } | Sort-Object seq)
+        $sourceLifecycleBefore = $childActivation.LastLifecycleResponse
+        $sourceIdentityBefore = [ordered]@{
+            service_id = "svc.dev.granted_candidate"
+            artifact_sha256 = [string]$sourcePersistBefore.artifact_sha256
+            artifact_persist_frame_sha256 = "sha256:$($sourcePersistFrameBefore.frame_sha256)"
+            artstor_blob_frame_sha256 = [string]$sourcePersistBefore.artstor_blob_frame_sha256
+            promotion_transaction_sha256 = [string]$sourcePersistBefore.promotion_transaction_sha256
+            install_authorization_frame_sha256 = "sha256:$($sourceAuthorizationBefore.frame_sha256)"
+            install_generation = [int64]$childInstall.Generation
+            inventory_generation = [int64]$beforeSourceRow.generation
+            load_generation = [int64]$sourceLifecycleBefore.generation
+            load_event_id = [string]$sourceLifecycleBefore.load_event_id
+            start_event_id = [string]$sourceLifecycleBefore.start_event_id
+            grant_target_schema = [string]$sourcePersistFrameBefore.payload_json.grant_target_schema
+            grant_target_count = [int64]$sourcePersistFrameBefore.payload_json.grant_target_count
+            grant_target_snapshot_sha256 = [string]$sourcePersistFrameBefore.payload_json.grant_target_snapshot_sha256
+            grant_frame_sha256 = @($sourceGrantFramesBefore | ForEach-Object { "sha256:$($_.frame_sha256)" })
+            grant_payload_sha256 = @($sourceGrantFramesBefore | ForEach-Object { "sha256:$($_.payload_sha256)" })
+            granted_host_imports = @($sourceGrantFramesBefore | ForEach-Object { [string]$_.payload_json.value.host_import_id } | Sort-Object)
+            grant_binding_sha256 = @($sourceGrantFramesBefore | ForEach-Object { [string]$_.payload_json.value.binding_sha256 } | Sort-Object)
+        }
+        $sourceBeforeCaptured = $beforeSourceRows.Count -eq 1 -and
+            $childInstall.CandidateSha256 -eq $childInstall.ArtifactSha256 -and
+            $sourceIdentityBefore.artifact_sha256 -eq $childInstall.CandidateSha256 -and
+            $sourceIdentityBefore.artifact_persist_frame_sha256 -eq $childInstall.ArtifactPersistFrameSha256 -and
+            $sourceIdentityBefore.promotion_transaction_sha256 -eq $childInstall.PromotionTransactionSha256 -and
+            $sourceIdentityBefore.install_generation -eq $sourceIdentityBefore.inventory_generation -and
+            $sourceIdentityBefore.install_generation -eq $sourceIdentityBefore.load_generation -and
+            $sourceLifecycleBefore.loaded -eq $true -and $sourceLifecycleBefore.running -eq $true -and
+            -not [string]::IsNullOrEmpty($sourceIdentityBefore.load_event_id) -and
+            -not [string]::IsNullOrEmpty($sourceIdentityBefore.start_event_id) -and
+            $sourceIdentityBefore.grant_target_schema -eq "raios.grant_target_snapshot.v1" -and
+            $sourceIdentityBefore.grant_target_snapshot_sha256 -match '^sha256:[0-9a-f]{64}$' -and
+            $sourceGrantFramesBefore.Count -eq 2 -and
+            $sourceIdentityBefore.granted_host_imports.Count -eq 2 -and
+            $sourceIdentityBefore.granted_host_imports[0] -eq "env.counter_get" -and
+            $sourceIdentityBefore.granted_host_imports[1] -eq "env.log"
+        Assert-ReportPredicate -Prefix $Label -Name "source-identity-captured-before-denial" -Expected "before rollback_apply, capture the exact installed artifact, generation, load/start event identities, and signed grant projection" -Passed $sourceBeforeCaptured -Actual $(Convert-CompactJson ([ordered]@{ identity = $sourceIdentityBefore; inventory = $beforeInventory; install = $childInstall }) 20) -FailureMessage "$Label did not expose a complete exact source identity before denied rollback"
+        $before = Get-SerialLogOffset
+        Send-AgentCommandTagged -Prefix $Label -Command "service.rollback_apply svc.dev.granted_candidate" -ExpectedMarker "RAIOS_AGENT_END service.rollback_apply" -Name "rollback-denied"
+        $response = Get-LastAgentResponseJson -Method "service.rollback_apply"
+        $afterRollbackInspection = Get-PersistInspection -Path $childPersist
+        $null = Assert-RollbackMutationReclogUnchanged -Prefix $Label -ServiceId "svc.dev.granted_candidate" -BeforeInspection $beforeRollbackInspection -AfterInspection $afterRollbackInspection
+        $window = (Get-SerialLogContent -Path $SerialLog).Substring([int]$before)
+        $reasonMatches = [string]::IsNullOrEmpty($ExpectedReason) -or
+            $response.body.result.reason -eq $ExpectedReason
+        $denied = $response.body.result.code -eq "capability_denied" -and
+            $reasonMatches -and
+            $response.body.result.loaded -eq $true -and $response.body.result.running -eq $true -and
+            $response.body.result.rollback_apply_authorized -eq $false -and
+            $response.body.result.rollback_verification.stopped -eq $false -and
+            $response.body.result.rollback_verification.drop_clear_bytes -eq $false -and
+            $response.body.result.rollback_verification.free_slot -eq $false -and
+            $response.body.result.rollback_verification.remove_inventory -eq $false -and
+            $response.body.result.rollback_verification.durable_unpromote_transaction.performed -eq $false -and
+            -not $window.Contains("RAIOS_ROLLBACK_GRANT result=accepted") -and
+            -not $window.Contains('"predicate": "wasm_import.rollback_intent.v1"') -and
+            -not $window.Contains("phase=intent") -and
+            -not $window.Contains("phase=revoke") -and
+            -not $window.Contains("phase=commit") -and
+            -not $window.Contains("teardown_after_commit=1")
+        Assert-ReportPredicate -Prefix $Label -Name "deny-before-teardown-or-effect" -Expected $(if ($ExpectedReason) { "rejection reason=$ExpectedReason leaves rollback authorization, teardown, durable unpromote, and guest effect false" } else { "the mutated predecessor is rejected before rollback teardown, durable unpromote, or guest effect" }) -Passed $denied -Actual $(Convert-CompactJson ([ordered]@{ expected_reason = $ExpectedReason; response = $response; window = $window }) 18) -FailureMessage "$Label was not rejected at the expected boundary before teardown or effect"
+        Send-AgentCommandTagged -Prefix $Label -Command "services" -ExpectedMarker "RAIOS_AGENT_END service.inventory" -Name "source-live-after-denial"
+        $inventory = Get-LastAgentResponseJson -Method "service.inventory"
+        $sourceRows = @($inventory.facts.services | Where-Object { $_.id -eq "svc.dev.granted_candidate" })
+        $sourceRow = if ($sourceRows.Count -eq 1) { $sourceRows[0] } else { $null }
+        $sourceAuthorizationAfter = @($afterRollbackInspection.reclog_frames | Where-Object {
+            [int64]$_.seq -eq ([int64]$childInstall.Sequence - 1)
+        })[0]
+        $sourcePersistFrameAfter = @($afterRollbackInspection.reclog_frames | Where-Object {
+            "sha256:$($_.frame_sha256)" -eq $childInstall.ArtifactPersistFrameSha256
+        })[0]
+        $sourcePersistAfter = @($afterRollbackInspection.artifact_persist_records | Where-Object {
+            "sha256:$($_.reclog_frame_sha256)" -eq $childInstall.ArtifactPersistFrameSha256
+        })[0]
+        $sourceGrantFramesAfter = @($afterRollbackInspection.reclog_frames | Where-Object {
+            $_.payload_json.predicate -eq "wasm_import.granted.v1" -and
+            [int64]$_.seq -in @(([int64]$childInstall.Sequence + 2), ([int64]$childInstall.Sequence + 3))
+        } | Sort-Object seq)
+        $sourceIdentityAfter = [ordered]@{
+            service_id = [string]$response.body.result.service_id
+            artifact_sha256 = [string]$sourcePersistAfter.artifact_sha256
+            artifact_persist_frame_sha256 = "sha256:$($sourcePersistFrameAfter.frame_sha256)"
+            artstor_blob_frame_sha256 = [string]$sourcePersistAfter.artstor_blob_frame_sha256
+            promotion_transaction_sha256 = [string]$sourcePersistAfter.promotion_transaction_sha256
+            install_authorization_frame_sha256 = "sha256:$($sourceAuthorizationAfter.frame_sha256)"
+            install_generation = [int64]$childInstall.Generation
+            inventory_generation = [int64]$sourceRow.generation
+            load_generation = [int64]$response.body.result.generation
+            load_event_id = [string]$response.body.result.load_event_id
+            start_event_id = [string]$response.body.result.start_event_id
+            grant_target_schema = [string]$sourcePersistFrameAfter.payload_json.grant_target_schema
+            grant_target_count = [int64]$sourcePersistFrameAfter.payload_json.grant_target_count
+            grant_target_snapshot_sha256 = [string]$sourcePersistFrameAfter.payload_json.grant_target_snapshot_sha256
+            grant_frame_sha256 = @($sourceGrantFramesAfter | ForEach-Object { "sha256:$($_.frame_sha256)" })
+            grant_payload_sha256 = @($sourceGrantFramesAfter | ForEach-Object { "sha256:$($_.payload_sha256)" })
+            granted_host_imports = @($sourceGrantFramesAfter | ForEach-Object { [string]$_.payload_json.value.host_import_id } | Sort-Object)
+            grant_binding_sha256 = @($sourceGrantFramesAfter | ForEach-Object { [string]$_.payload_json.value.binding_sha256 } | Sort-Object)
+        }
+        $sourceIdentityUnchanged = (Convert-CompactJson $sourceIdentityBefore 16) -eq (Convert-CompactJson $sourceIdentityAfter 16)
+        $sourceLive = $sourceIdentityUnchanged -and $sourceRows.Count -eq 1 -and
+            $sourceRow.service_slot_activation_active -eq $true -and $sourceRow.running -eq $true -and
+            $sourceRow.last_run_outcome -eq "success" -and $response.body.result.loaded -eq $true -and
+            $response.body.result.running -eq $true -and
+            $response.body.result.rollback_plan.artifact_hash -eq $sourceIdentityBefore.artifact_sha256 -and
+            [int64]$response.body.result.rollback_plan.generation -eq $sourceIdentityBefore.install_generation -and
+            $response.body.result.rollback_plan.load_event_id -eq $sourceIdentityBefore.load_event_id
+        Assert-ReportPredicate -Prefix $Label -Name "source-identity-remains-live" -Expected "after denial, the exact pre-command artifact, generation, load/start identities, and grant projection remain the one loaded/running source" -Passed $sourceLive -Actual $(Convert-CompactJson ([ordered]@{ before = $sourceIdentityBefore; after = $sourceIdentityAfter; inventory = $inventory; response = $response }) 22) -FailureMessage "$Label replaced or disturbed the exact live source identity after denial"
+        Send-AgentCommandTagged -Prefix $Label -Command "host_import.selftest" -ExpectedMarker "RAIOS_HOSTIMPORT selftest=pass" -Name "peer-isolation"
+        Stop-RaiosVmCleanly -Vm $childVm -Name $Label
+        $childVm = $null
+    }
+    finally {
+        $script:ResolvedImage = $baseResolvedImage
+        if ($childVm) { Stop-RaiosVmForce -Vm $childVm -Name "$Label-failure" }
+        if ($childFixturePid -gt 0) {
+            & (Join-Path $PSScriptRoot "net8-w7-tls-fixture.ps1") -Action Stop -ProcessId $childFixturePid
+        }
+    }
+}
+
+function Assert-RollbackRecoveryMutationDenied {
+    param([string]$Label, [string]$MutationFlag, [string]$ExpectedReason, [int]$Port)
+    $childPersist = Join-Path $RunDir "persist-$Label.img"
+    $childVm = $null
+    Copy-Item -LiteralPath $PersistDiskImage -Destination $childPersist -Force
+    try {
+        $mutation = Invoke-PersistTool -Arguments @($MutationFlag, $childPersist)
+        $outer = Get-PersistInspection -Path $childPersist
+        $outerValid = $outer.reclog_scan.status -eq "valid" -and
+            $mutation.signed_install_payloads_unchanged -eq $true -and
+            $mutation.unsigned_recovery_and_reclog_resealed -eq $true
+        Assert-ReportPredicate -Prefix $Label -Name "resealed-outer-chain-valid" -Expected "the storage attacker fully rechains unsigned recovery records while every signed install payload remains byte-identical" -Passed $outerValid -Actual $(Convert-CompactJson ([ordered]@{ mutation = $mutation; scan = $outer.reclog_scan }) 14) -FailureMessage "$Label did not preserve the signed installs and valid outer RECLOG"
+        $recoverySourceIdentityBefore = [ordered]@{
+            artifact_persist = @($outer.artifact_persist_records | Where-Object {
+                $_.service_id -eq "svc.dev.granted_candidate"
+            } | Sort-Object reclog_frame_sha256 | ForEach-Object {
+                "{0}|{1}|{2}|{3}|{4}|{5}" -f $_.reclog_frame_sha256, $_.artifact_sha256,
+                    $_.promotion_transaction_sha256, $_.grant_target_schema,
+                    $_.grant_target_count, $_.grant_target_snapshot_sha256
+            })
+            install_authorization = @($outer.reclog_frames | Where-Object {
+                $_.payload_json.schema -eq "raios.install_authorization.v0" -and
+                $_.payload_json.service_id -eq "svc.dev.granted_candidate"
+            } | Sort-Object seq | ForEach-Object {
+                "{0}|{1}|{2}|{3}|{4}|{5}" -f $_.seq, $_.frame_sha256,
+                    $_.payload_json.install_candidate_sha256, $_.payload_json.generation,
+                    $_.payload_json.grant_target_count, $_.payload_json.grant_target_snapshot_sha256
+            })
+        }
+
+        $before = Get-SerialLogOffset
+        $childVm = Start-RaiosVm -Label $Label -PredicatePrefix $Label -Port $Port -MonitorPort ($Port + 100) -QmpPort 0 -PersistPath $childPersist
+        $null = Wait-ForLogText -Path $SerialLog -Needle "GRANTED_CANDIDATE_PROVIDER_AUTOLOAD " -TimeoutSeconds $TimeoutSeconds
+        $afterRecoveryInspection = Get-PersistInspection -Path $childPersist
+        $null = Assert-RollbackMutationReclogUnchanged -Prefix $Label -ServiceId "svc.dev.granted_candidate" -BeforeInspection $outer -AfterInspection $afterRecoveryInspection
+        $recoverySourceIdentityAfter = [ordered]@{
+            artifact_persist = @($afterRecoveryInspection.artifact_persist_records | Where-Object {
+                $_.service_id -eq "svc.dev.granted_candidate"
+            } | Sort-Object reclog_frame_sha256 | ForEach-Object {
+                "{0}|{1}|{2}|{3}|{4}|{5}" -f $_.reclog_frame_sha256, $_.artifact_sha256,
+                    $_.promotion_transaction_sha256, $_.grant_target_schema,
+                    $_.grant_target_count, $_.grant_target_snapshot_sha256
+            })
+            install_authorization = @($afterRecoveryInspection.reclog_frames | Where-Object {
+                $_.payload_json.schema -eq "raios.install_authorization.v0" -and
+                $_.payload_json.service_id -eq "svc.dev.granted_candidate"
+            } | Sort-Object seq | ForEach-Object {
+                "{0}|{1}|{2}|{3}|{4}|{5}" -f $_.seq, $_.frame_sha256,
+                    $_.payload_json.install_candidate_sha256, $_.payload_json.generation,
+                    $_.payload_json.grant_target_count, $_.payload_json.grant_target_snapshot_sha256
+            })
+        }
+        $recoverySourceIdentityUnchanged = $recoverySourceIdentityBefore.artifact_persist.Count -gt 0 -and
+            $recoverySourceIdentityBefore.install_authorization.Count -gt 0 -and
+            (Convert-CompactJson $recoverySourceIdentityBefore 16) -eq (Convert-CompactJson $recoverySourceIdentityAfter 16)
+        Assert-ReportPredicate -Prefix $Label -Name "quarantined-source-provenance-unchanged" -Expected "the recovery quarantine retains the exact durable artifact, signed-install generation, and grant-projection provenance without claiming a live service" -Passed $recoverySourceIdentityUnchanged -Actual $(Convert-CompactJson ([ordered]@{ before = $recoverySourceIdentityBefore; after = $recoverySourceIdentityAfter }) 18) -FailureMessage "$Label changed durable source provenance while quarantining the forged recovery"
+        $window = (Get-SerialLogContent -Path $SerialLog).Substring([int]$before)
+        $marker = Get-ProviderAutoloadMarker -BeforeOffset (Get-SerialLogOffset)
+        $projectionIndex = $window.IndexOf("cap.projection ")
+        $autoloadIndex = $window.IndexOf("GRANTED_CANDIDATE_PROVIDER_AUTOLOAD ")
+        $deniedBeforeEffect = $marker.Result -eq "denied" -and
+            $marker.Phase -eq "denied" -and $marker.Reason -eq $ExpectedReason -and
+            -not $marker.Loaded -and -not $marker.Running -and $marker.RunCount -eq 0 -and
+            $projectionIndex -ge 0 -and $projectionIndex -lt $autoloadIndex -and
+            $window.Contains("rollback_quarantine=1") -and
+            -not $window.Contains("WASM_GUEST_LOG rollback target log-only") -and
+            -not $window.Contains("WASM_GUEST_LOG echo counter=")
+        Assert-ReportPredicate -Prefix $Label -Name "quarantine-before-autoload-or-effect" -Expected "typed reason=$ExpectedReason is installed as quarantine before provider autoload, with neither source nor target guest effect" -Passed $deniedBeforeEffect -Actual $(Convert-CompactJson ([ordered]@{ marker = $marker; window = $window }) 18) -FailureMessage "$Label did not fail closed before autoload/effect"
+        Stop-RaiosVmCleanly -Vm $childVm -Name $Label
+        $childVm = $null
+    }
+    finally {
+        if ($childVm) { Stop-RaiosVmForce -Vm $childVm -Name "$Label-failure" }
+    }
+}
+
+function Invoke-RollbackBoundaryCase {
+    param([ValidateSet("intent", "revoke", "commit")][string]$Phase, [int]$Port)
+    $prefix = "boundary-$Phase"
+    $persist = Join-Path $RunDir "persist-boundary-$Phase.img"
+    Copy-Item -LiteralPath $Boot1PersistSnapshot -Destination $persist -Force
+    $vm = $null
+    $recoveryVm = $null
+    $stableVm = $null
+    try {
+        $vm = Start-RaiosVm -Label "$prefix-source" -PredicatePrefix $prefix -Port $Port -MonitorPort ($Port + 100) -QmpPort 0 -PersistPath $persist
+        $null = Wait-ForLogText -Path $SerialLog -Needle "GRANTED_CANDIDATE_PROVIDER_AUTOLOAD result=accepted phase=autoloaded reason=repromotion_reverified_m6_gate_loaded_and_started" -TimeoutSeconds $TimeoutSeconds
+        $startOffset = Get-SerialLogOffset
+        $stream = Get-SerialTcpStream -Port $Port -TimeoutSeconds $TimeoutSeconds
+        $script:SerialTcpDrainStream = $stream
+        Write-SerialTcpText -Stream $stream -Text "service.rollback_apply svc.dev.granted_candidate`r"
+        $stream.Flush()
+        $needle = if ($Phase -eq "revoke") { "phase=revoke index=1 durable=1" } else { "phase=$Phase durable=1" }
+        $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+        $seen = $false
+        do {
+            $text = Get-SerialLogContent -Path $SerialLog
+            if ($text.Length -ge $startOffset -and $text.Substring([int]$startOffset).Contains($needle)) {
+                $seen = $true
+                break
+            }
+            Start-Sleep -Milliseconds 1
+        } while ([DateTime]::UtcNow -lt $deadline)
+        Assert-ReportPredicate -Prefix $prefix -Name "durable-marker-observed" -Expected "$Phase marker is emitted only after that durable append/readback" -Passed $seen -Actual $(Get-SerialLogTail -Path $SerialLog) -FailureMessage "$prefix durable boundary marker not observed"
+        Stop-RaiosVmForce -Vm $vm
+        $processStopped = -not (Get-Process -Id $vm.Pid -ErrorAction SilentlyContinue)
+        Assert-ReportPredicate -Prefix $prefix -Name "source-process-stopped" -Expected "the exact source QEMU process exits immediately after the durable milestone marker" -Passed $processStopped -Actual "pid=$($vm.Pid) stopped=$processStopped" -FailureMessage "harness_infrastructure_failure: $prefix source QEMU survived the requested cut"
+        $cutLog = (Get-SerialLogContent -Path $SerialLog).Substring([int]$startOffset)
+        $laterMarkerAbsent = if ($Phase -eq "intent") {
+            -not $cutLog.Contains("phase=revoke index=1 durable=1") -and -not $cutLog.Contains("phase=commit durable=1")
+        } elseif ($Phase -eq "revoke") {
+            -not $cutLog.Contains("phase=commit durable=1")
+        } else {
+            $true
+        }
+        Assert-ReportPredicate -Prefix $prefix -Name "later-marker-absent" -Expected "the saved serial cut contains no transaction milestone after $Phase" -Passed $laterMarkerAbsent -Actual $cutLog -FailureMessage "$prefix serial cut already contained a later durable milestone"
+        $vm = $null
+        $script:SerialTcpDrainStream = $null
+        Close-SerialTcpConnection
+
+        $cut = Get-PersistInspection -Path $persist
+        $cutIntent = @($cut.reclog_frames | Where-Object { $_.payload_json.predicate -eq "wasm_import.rollback_intent.v1" }).Count
+        $cutRevoke = @($cut.reclog_frames | Where-Object { $_.payload_json.predicate -eq "wasm_import.revoked.v1" -and $_.payload_json.value.host_import_id -eq "env.counter_get" }).Count
+        $cutCommit = @($cut.reclog_frames | Where-Object { $_.payload_json.predicate -eq "wasm_import.rollback_commit.v1" }).Count
+        $cutOk = $cut.reclog_scan.status -eq "valid" -and $cutIntent -eq 1 -and
+            $cutRevoke -eq $(if ($Phase -eq "intent") { 0 } else { 1 }) -and
+            $cutCommit -eq $(if ($Phase -eq "commit") { 1 } else { 0 })
+        Assert-ReportPredicate -Prefix $prefix -Name "exact-cut-state" -Expected "disk cut is exactly the requested durable milestone with no later frame" -Passed $cutOk -Actual "intent=$cutIntent revoke=$cutRevoke commit=$cutCommit" -FailureMessage "$prefix cut crossed the requested transaction milestone"
+
+        $recoveryVm = Start-RaiosVm -Label "$prefix-recovery" -PredicatePrefix $prefix -Port ($Port + 1) -MonitorPort ($Port + 101) -QmpPort 0 -PersistPath $persist
+        $null = Wait-ForLogText -Path $SerialLog -Needle "GRANTED_CANDIDATE_PROVIDER_AUTOLOAD " -TimeoutSeconds $TimeoutSeconds
+        $recoveryLog = Get-SerialLogContent -Path $SerialLog
+        $recovered = $recoveryLog.Contains("GRANTED_CANDIDATE_PROVIDER_AUTOLOAD result=accepted phase=autoloaded reason=rollback_commit_target_autoloaded") -and
+            $recoveryLog.Contains("WASM_GUEST_LOG rollback target log-only") -and
+            -not $recoveryLog.Contains("WASM_GUEST_LOG echo counter=") -and
+            ($Phase -eq "commit" -or $recoveryLog.Contains("RAIOS_ROLLBACK_RECOVERY "))
+        Assert-ReportPredicate -Prefix $prefix -Name "restart-converges-before-guest" -Expected "restart completes/reuses the transaction before any source guest call and autoloads only the target" -Passed $recovered -Actual $(Get-SerialLogTail -Path $SerialLog) -FailureMessage "$prefix did not converge on first restart"
+        Send-AgentCommandTagged -Prefix $prefix -Command "host_import.selftest" -ExpectedMarker "RAIOS_HOSTIMPORT selftest=pass" -Name "peer-after-recovery"
+        Stop-RaiosVmCleanly -Vm $recoveryVm -Name "$prefix-recovery"
+        $recoveryVm = $null
+        $afterRecovery = Get-PersistInspection -Path $persist
+        $revokes = @($afterRecovery.reclog_frames | Where-Object { $_.payload_json.predicate -eq "wasm_import.revoked.v1" -and $_.payload_json.value.host_import_id -eq "env.counter_get" })
+        $commits = @($afterRecovery.reclog_frames | Where-Object { $_.payload_json.predicate -eq "wasm_import.rollback_commit.v1" })
+        $oneShot = $afterRecovery.reclog_scan.status -eq "valid" -and $revokes.Count -eq 1 -and $commits.Count -eq 1
+        Assert-ReportPredicate -Prefix $prefix -Name "one-revoke-one-commit" -Expected "recovery leaves exactly one counter revoke and one commit" -Passed $oneShot -Actual "revokes=$($revokes.Count) commits=$($commits.Count)" -FailureMessage "$prefix duplicated revoke or commit"
+
+        $stableCount = [int64]$afterRecovery.reclog_scan.count
+        $stableTail = [string]$afterRecovery.reclog_scan.tail_frame_sha256
+        $stableVm = Start-RaiosVm -Label "$prefix-stable" -PredicatePrefix $prefix -Port ($Port + 2) -MonitorPort ($Port + 102) -QmpPort 0 -PersistPath $persist
+        $null = Wait-ForLogText -Path $SerialLog -Needle "GRANTED_CANDIDATE_PROVIDER_AUTOLOAD result=accepted phase=autoloaded reason=rollback_commit_target_autoloaded" -TimeoutSeconds $TimeoutSeconds
+        Stop-RaiosVmCleanly -Vm $stableVm -Name "$prefix-stable"
+        $stableVm = $null
+        $stable = Get-PersistInspection -Path $persist
+        $stableOk = [int64]$stable.reclog_scan.count -eq $stableCount -and [string]$stable.reclog_scan.tail_frame_sha256 -eq $stableTail
+        Assert-ReportPredicate -Prefix $prefix -Name "second-restart-stable" -Expected "a second restart appends no revoke/commit and preserves the exact tail" -Passed $stableOk -Actual "before=$stableCount/$stableTail after=$($stable.reclog_scan.count)/$($stable.reclog_scan.tail_frame_sha256)" -FailureMessage "$prefix was not stable on second restart"
+    }
+    finally {
+        Stop-RaiosVmForce -Vm $vm
+        Stop-RaiosVmForce -Vm $recoveryVm
+        Stop-RaiosVmForce -Vm $stableVm
+    }
 }
 
 function Assert-Boot2HostChain {
@@ -1951,6 +2519,13 @@ try {
     & cargo build --locked -p ota-tools --bin dev-promotion-signer
     $signerBuildExit = $LASTEXITCODE
     Assert-ReportPredicate -Prefix "boot1" -Name "rust-signer-built" -Expected "cargo build --locked -p ota-tools --bin dev-promotion-signer exits 0" -Passed ($signerBuildExit -eq 0) -Actual $(if ($signerBuildExit -eq 0) { "built" } else { "exit=$signerBuildExit" }) -FailureMessage "dev-promotion-signer build failed"
+    $rollbackFixtureTool = Join-Path $env:CARGO_TARGET_DIR "debug\dev-rollback-fixture.exe"
+    $rollbackFixtureWasm = Join-Path $RepoRoot "vm-harness\fixtures\rollback-target-log-only.wasm"
+    if ($RollbackFixtureMode) {
+        & cargo build --locked -p ota-tools --bin dev-rollback-fixture
+        $fixtureToolBuildExit = $LASTEXITCODE
+        Assert-ReportPredicate -Prefix "boot1" -Name "rollback-fixture-tool-built" -Expected "the fixed offline rollback fixture tool builds with Cargo.lock unchanged" -Passed ($fixtureToolBuildExit -eq 0 -and (Test-Path -LiteralPath $rollbackFixtureTool)) -Actual "exit=$fixtureToolBuildExit tool=$rollbackFixtureTool" -FailureMessage "dev-rollback-fixture build failed"
+    }
 
     if ($Image) {
         throw "persistence-reboot requires a per-run temporary pin-bearing image; do not pass -Image"
@@ -1984,18 +2559,49 @@ try {
     }
 
     $PersistDiskImage = Join-Path $RunDir "kept-persist.img"
-    $builderResult = Invoke-NativeCommandForReport -FilePath "python" -Arguments @($Builder, "--self-check", "--seed-bootctl", "valid-a", $PersistDiskImage)
+    $builderArgs = @($Builder, "--self-check", "--seed-bootctl", "valid-a")
+    if ($RollbackFixtureMode) {
+        $builderArgs += @("--seed-dev-rollback-fixture", $rollbackFixtureWasm, "--dev-rollback-fixture-tool", $rollbackFixtureTool)
+    }
+    $builderArgs += $PersistDiskImage
+    $builderResult = Invoke-NativeCommandForReport -FilePath "python" -Arguments $builderArgs
     Assert-ReportPredicate -Prefix "boot1" -Name "kept-persist-disk-built" -Expected "self-check GPT persist disk with valid-a bootctl" -Passed ($builderResult.ExitCode -eq 0) -Actual $(if ($builderResult.ExitCode -eq 0) { "built" } else { (@($builderResult.Output) + @($builderResult.Error)) -join [Environment]::NewLine }) -FailureMessage "Persist disk build failed"
     $PersistDiskImage = Assert-PersistDiskPathSafe -Path $PersistDiskImage
     $initialInspection = Get-PersistInspection -Path $PersistDiskImage
+    $fixtureV2Ok = $true
+    if ($RollbackFixtureMode) {
+        $fixtureFrames = @($initialInspection.reclog_frames)
+        $fixtureAuth = @($fixtureFrames | Where-Object { $_.payload_json.record_kind -eq "install_authorization" })[0]
+        $fixturePromote = @($fixtureFrames | Where-Object { $_.payload_json.transaction_kind -eq "promote" })[0]
+        $fixturePersist = @($fixtureFrames | Where-Object { $_.payload_json.record_kind -eq "artifact_persist" })[0]
+        $fixtureV2Ok = [int64]$fixtureAuth.payload_json.install_envelope_version -eq 2 -and
+            $fixtureAuth.payload_json.grant_target_schema -eq "raios.grant_target_snapshot.v1" -and
+            [int64]$fixtureAuth.payload_json.grant_target_count -eq 1 -and
+            $fixtureAuth.payload_json.grant_target_snapshot_sha256 -match '^sha256:[0-9a-f]{64}$' -and
+            $fixtureAuth.payload_json.computed_grant_sha256 -eq $fixturePromote.payload_json.computed_grant_hash -and
+            $fixtureAuth.payload_json.attestation_reference_sha256 -eq $fixturePromote.payload_json.attestation_reference_hash -and
+            $fixturePromote.payload_json.install_authorization_frame_sha256 -eq "sha256:$($fixtureAuth.frame_sha256)" -and
+            [int64]$fixturePromote.payload_json.install_envelope_version -eq 2 -and
+            $fixturePromote.payload_json.grant_target_snapshot_sha256 -eq $fixtureAuth.payload_json.grant_target_snapshot_sha256 -and
+            $fixturePersist.payload_json.service_id -eq $fixtureAuth.payload_json.service_id -and
+            $fixturePersist.payload_json.artifact_sha256 -eq $fixtureAuth.payload_json.install_candidate_sha256 -and
+            $fixturePersist.payload_json.grant_target_entries -eq "env.log:host_call" -and
+            [int64]$fixturePersist.payload_json.grant_target_count -eq 1 -and
+            $fixturePersist.payload_json.grant_target_snapshot_sha256 -eq $fixtureAuth.payload_json.grant_target_snapshot_sha256
+    }
     $initialOk = (
         [bool]$initialInspection.gpt_header_valid -and
         [bool]$initialInspection.gpt_crc_checked -and
         [bool]$initialInspection.data_superblock_valid -and
         $initialInspection.bootctl_read.decision.posture -eq "Normal" -and
-        [int]$initialInspection.reclog_scan.count -eq 0
+        [int]$initialInspection.reclog_scan.count -eq $(if ($RollbackFixtureMode) { 4 } else { 0 }) -and
+        $fixtureV2Ok
     )
-    Assert-ReportPredicate -Prefix "boot1" -Name "kept-persist-disk-empty-normal" -Expected "valid GPT, Normal bootctl, empty RECLOG" -Passed $initialOk -Actual $(Convert-CompactJson $initialInspection 8) -FailureMessage "Initial kept persist disk was not empty Normal posture"
+    Assert-ReportPredicate -Prefix "boot1" -Name "kept-persist-disk-empty-normal" -Expected $(if ($RollbackFixtureMode) { "valid GPT, Normal bootctl, exact four-record log-only predecessor with independently signed V2 snapshot authority" } else { "valid GPT, Normal bootctl, empty RECLOG" }) -Passed $initialOk -Actual $(Convert-CompactJson $initialInspection 8) -FailureMessage "Initial kept persist disk did not match the selected fixture or signed V2 context"
+    if ($RollbackFixtureMode) {
+        $InitialRollbackFixtureSnapshot = Join-Path $RunDir "persist-initial-rollback-fixture.img"
+        Copy-Item -LiteralPath $PersistDiskImage -Destination $InitialRollbackFixtureSnapshot -Force
+    }
 
     $HardwareProfile = New-HardwareProfile -Nic "e1000" -ScratchDrive $true -AuditRollbackTargetDrive $true -PersistDrive $true
 
@@ -2003,6 +2609,53 @@ try {
     $activation = @(Invoke-W7M6PhysicalActivation)[-1]
     $install = @(Invoke-SignedGrantedCandidateInstall -Activation $activation -NamePrefix "boot1")[-1]
     Assert-Boot1ActivationAndInstall -Activation $activation -Install $install
+    if ($RollbackBoundaryOnly) {
+        Stop-RaiosVmCleanly -Vm $boot1Vm -Name "boot1"
+        $boot1Vm = $null
+        $postBoot1Inspection = Get-PersistInspection -Path $PersistDiskImage
+        Assert-RollbackSourceGrantFrames -Inspection $postBoot1Inspection -Activation $activation -Install $install
+        Copy-Item -LiteralPath $PersistDiskImage -Destination $Boot1PersistSnapshot -Force
+        if ($RollbackBoundaryPhase -in @("all", "intent")) {
+            Invoke-RollbackBoundaryCase -Phase "intent" -Port ($SerialTcpPort + 20)
+        }
+        if ($RollbackBoundaryPhase -in @("all", "revoke")) {
+            Invoke-RollbackBoundaryCase -Phase "revoke" -Port ($SerialTcpPort + 30)
+        }
+        if ($RollbackBoundaryPhase -in @("all", "commit")) {
+            Invoke-RollbackBoundaryCase -Phase "commit" -Port ($SerialTcpPort + 40)
+        }
+        $Result = "passed"
+        return
+    }
+    if ($RollbackGrantDeltaOnly) {
+        Stop-RaiosVmCleanly -Vm $boot1Vm -Name "boot1"
+        $boot1Vm = $null
+        $postBoot1Inspection = Get-PersistInspection -Path $PersistDiskImage
+        Assert-RollbackSourceGrantFrames -Inspection $postBoot1Inspection -Activation $activation -Install $install
+        Copy-Item -LiteralPath $PersistDiskImage -Destination $Boot1PersistSnapshot -Force
+
+        $boot2Vm = Start-RaiosVm -Label "rollback-boot" -PredicatePrefix "rollback" -Port ($SerialTcpPort + 1) -MonitorPort ($SerialTcpPort + 101) -QmpPort 0 -PersistPath $PersistDiskImage
+        $null = Assert-Boot2Autoload -Activation $activation -Install $install -Boot1Inspection $postBoot1Inspection
+        $rollback = Invoke-RollbackGrantDeltaApply
+        Stop-RaiosVmCleanly -Vm $boot2Vm -Name "rollback-boot"
+        $boot2Vm = $null
+        Assert-RollbackGrantDeltaHostOrdering -Inspection (Get-PersistInspection -Path $PersistDiskImage)
+
+        $boot3Vm = Start-RaiosVm -Label "rollback-reboot" -PredicatePrefix "reboot" -Port ($SerialTcpPort + 2) -MonitorPort ($SerialTcpPort + 102) -QmpPort 0 -PersistPath $PersistDiskImage
+        Assert-RollbackTargetReboot
+        Stop-RaiosVmCleanly -Vm $boot3Vm -Name "rollback-reboot"
+        $boot3Vm = $null
+
+        Assert-RollbackFixtureMutationDenied -Label "rollback-snapshot-reseal" -MutationFlag "--reseal-rollback-target-snapshot" -ExpectedReason "signed_snapshot_context_mismatch" -Port ($SerialTcpPort + 10)
+        Assert-RollbackFixtureMutationDenied -Label "rollback-snapshot-bitflip" -MutationFlag "--tamper-rollback-target-snapshot" -Port ($SerialTcpPort + 11)
+        Assert-RollbackFixtureMutationDenied -Label "rollback-artstor-link-tamper" -MutationFlag "--tamper-rollback-target-artstor-link" -Port ($SerialTcpPort + 12)
+        Assert-RollbackFixtureMutationDenied -Label "rollback-signature-tamper" -MutationFlag "--tamper-rollback-target-signature" -Port ($SerialTcpPort + 13)
+        Assert-RollbackFixtureMutationDenied -Label "rollback-authenticated-install-duplicate" -MutationFlag "--duplicate-authenticated-install" -ExpectedReason "rollback_target_authenticated_order_duplicate" -Port ($SerialTcpPort + 14)
+        Assert-RollbackRecoveryMutationDenied -Label "rollback-forged-unchanged-projection" -MutationFlag "--forge-rollback-unchanged-projection" -ExpectedReason "rollback_transition_delta_count_mismatch" -Port ($SerialTcpPort + 15)
+        Assert-RollbackRecoveryMutationDenied -Label "rollback-mismatched-pair" -MutationFlag "--mismatch-rollback-intent-commit" -ExpectedReason "rollback_recovery_pair_mismatch" -Port ($SerialTcpPort + 16)
+        $Result = "passed"
+        return
+    }
     $boot1CapProjection = Invoke-Boot1DurableRevoke -Prefix "boot1"
     $boot1MemoryScan = Invoke-Boot1DurableMemoryWrites -Prefix "boot1"
     Stop-RaiosVmCleanly -Vm $boot1Vm -Name "boot1"

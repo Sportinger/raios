@@ -18,6 +18,19 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
+
+def _load_rollback_security():
+    helper_path = Path(__file__).with_name("rollback_image_security.py")
+    spec = importlib.util.spec_from_file_location("rollback_image_security", helper_path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"cannot load rollback image security helper: {helper_path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+ROLLBACK_SECURITY = _load_rollback_security()
+
 SECTOR_SIZE = 512
 GPT_ENTRY_SIZE = 128
 GPT_ENTRY_COUNT = 128
@@ -165,6 +178,14 @@ class BuildFsManifestIndex:
     file_count: int
     chunk_references: tuple[BuildFsChunkReference, ...]
     chunk_requirements: dict[bytes, int]
+
+
+@dataclass(frozen=True)
+class DevRollbackSeed:
+    artifact: bytes
+    reclog: bytes
+    artstor: bytes
+    metadata: dict[str, object]
 
 
 @dataclass(frozen=True)
@@ -823,6 +844,80 @@ def seed_artstor_garbage_blob(handle) -> None:
     write_at(handle, SEED_DATA_START_LBA + ARTSTOR_START_LBA, frame)
 
 
+def validate_dev_rollback_bundle(seed: DevRollbackSeed, expected_artifact: bytes) -> DevRollbackSeed:
+    try:
+        verified = ROLLBACK_SECURITY.verify_fixture(
+            expected_artifact, seed.reclog, seed.artstor
+        )
+    except ROLLBACK_SECURITY.SecurityError as exc:
+        raise ValueError(f"dev rollback fixture rejected: {exc.code}") from exc
+    if seed.artifact != expected_artifact:
+        raise ValueError("dev rollback fixture artifact differs from requested artifact")
+    trusted = {
+        "artifact_sha256": f"sha256:{verified.artifact_sha256.hex()}",
+        "reclog_tail_sha256": f"sha256:{verified.reclog_tail_sha256.hex()}",
+        "artstor_frame_sha256": f"sha256:{verified.artstor_frame_sha256.hex()}",
+    }
+    return DevRollbackSeed(seed.artifact, seed.reclog, seed.artstor, trusted)
+
+def prepare_dev_rollback_seed(tool: Path, artifact: Path) -> DevRollbackSeed:
+    if not tool.is_file():
+        raise ValueError(f"dev rollback fixture tool is missing: {tool}")
+    if not artifact.is_file():
+        raise ValueError(f"dev rollback fixture artifact is missing: {artifact}")
+    expected_artifact = artifact.read_bytes()
+    if len(expected_artifact) != 121 or hashlib.sha256(expected_artifact).hexdigest() != "33ea9dc8f8ecd039236673fafdffcf63e8691a1d352cffee4ddf47531cb5756c":
+        raise ValueError("dev rollback fixture input is not the pinned 121-byte Wasm")
+    root = Path(tempfile.mkdtemp(prefix="raios-dev-rollback-seed-"))
+    try:
+        generated = subprocess.run(
+            [str(tool), "generate", str(artifact), str(root)],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        if generated.returncode != 0:
+            raise ValueError(f"dev rollback fixture generation failed: exit {generated.returncode}")
+        sizes = {name: (root / name).stat().st_size for name in ("artifact.wasm", "reclog.bin", "artstor.bin")}
+        if sizes["artifact.wasm"] != 121 or not (0 < sizes["reclog.bin"] <= 64 * 1024) or sizes["artstor.bin"] != SECTOR_SIZE:
+            raise ValueError("dev rollback fixture producer output exceeds exact bounded sizes")
+        seed = DevRollbackSeed(
+            artifact=(root / "artifact.wasm").read_bytes(),
+            reclog=(root / "reclog.bin").read_bytes(),
+            artstor=(root / "artstor.bin").read_bytes(),
+            metadata={},
+        )
+    finally:
+        shutil.rmtree(root)
+    return validate_dev_rollback_bundle(seed, expected_artifact)
+
+
+def seed_dev_rollback_fixture(handle, seed: DevRollbackSeed) -> None:
+    reclog_capacity = RECLOG_LBA_COUNT * SECTOR_SIZE
+    artstor_capacity = ARTSTOR_LBA_COUNT * SECTOR_SIZE
+    if len(seed.reclog) > reclog_capacity or len(seed.artstor) > artstor_capacity:
+        raise ValueError("dev rollback fixture exceeds persistence region")
+    write_at(handle, SEED_DATA_START_LBA + RECLOG_START_LBA, seed.reclog)
+    write_at(handle, SEED_DATA_START_LBA + ARTSTOR_START_LBA, seed.artstor)
+
+
+def validate_dev_rollback_seed_image(image: Path, seed: DevRollbackSeed) -> None:
+    with image.open("rb") as handle:
+        reclog = read_at(
+            handle,
+            SEED_DATA_START_LBA + RECLOG_START_LBA,
+            len(seed.reclog),
+        )
+        artstor = read_at(
+            handle,
+            SEED_DATA_START_LBA + ARTSTOR_START_LBA,
+            len(seed.artstor),
+        )
+    if reclog != seed.reclog or artstor != seed.artstor:
+        raise ValueError("dev rollback fixture image bytes differ from independently verified bundle")
+    validate_dev_rollback_bundle(DevRollbackSeed(seed.artifact, reclog, artstor, {}), seed.artifact)
+
+
 def seed_bootctl_fixture(handle, spec: str | None) -> None:
     if spec is None or spec == "" or spec.strip().lower() in {"none", "empty"}:
         return
@@ -890,12 +985,30 @@ def build_payload_esp(payload_dir: Path) -> tuple[bytes, list[str]]:
     return builder.build(), staged
 
 
+class _BoundedImageGpt:
+    def __init__(self, image: Path):
+        self.image = image
+        self.size = image.stat().st_size
+
+    def read_at(self, offset: int, length: int) -> bytes:
+        with self.image.open("rb") as handle:
+            handle.seek(offset)
+            return handle.read(length)
+
+
+def validated_seed_data_lba(image: Path) -> int:
+    try:
+        return ROLLBACK_SECURITY.validate_gpt(_BoundedImageGpt(image)).first_lba
+    except (OSError, ROLLBACK_SECURITY.SecurityError) as exc:
+        code = getattr(exc, "code", "gpt_source")
+        raise ValueError(f"refusing invalid GPT image: {code}") from exc
+
 def validate_existing_gpt_image(image: Path) -> dict[str, object]:
+    seed_data_lba = validated_seed_data_lba(image)
     info = inspect_image(image)
-    required = ("gpt_header_valid", "gpt_seed_data_found", "data_superblock_valid")
-    failed = [name for name in required if not info.get(name)]
-    if failed:
-        raise ValueError(f"refusing non-GPT or unprovisioned persist image: {', '.join(failed)}")
+    if not info.get("data_superblock_valid"):
+        raise ValueError("refusing image with invalid SEED_DATA superblock")
+    info["validated_seed_data_first_lba"] = seed_data_lba
     return info
 
 
@@ -990,10 +1103,9 @@ def apply_boot_slot_update(
 
 
 def seed_data_first_lba_from_info(info: dict[str, object]) -> int:
-    for part in info["partitions"]:
-        if part["name"] == "SEED_DATA":
-            return int(part["first_lba"])
-    raise ValueError("SEED_DATA partition not found")
+    if "validated_seed_data_first_lba" not in info:
+        raise ValueError("SEED_DATA LBA was not obtained from full GPT validation")
+    return int(info["validated_seed_data_first_lba"])
 
 
 def read_reclog_region(handle, seed_data_first_lba: int) -> bytes:
@@ -1377,6 +1489,26 @@ def replace_json_hash(payload: bytes, field: str, old_value: str, new_value: str
     return payload.replace(old, new, 1)
 
 
+def grant_target_snapshot_hash(
+    service_id: str, artifact_sha256: str, entries: tuple[tuple[str, str], ...]
+) -> str:
+    artifact_hex = artifact_sha256.removeprefix("sha256:")
+    artifact = bytes.fromhex(artifact_hex)
+    if len(artifact) != 32 or not entries:
+        raise ValueError("canonical grant target needs a 32-byte artifact and entries")
+    body = bytearray(b"raios.grant_target_snapshot.v1\0")
+    body.extend(service_id.encode("utf-8"))
+    body.append(0)
+    body.extend(artifact)
+    body.extend(len(entries).to_bytes(8, "little"))
+    for host_import_id, scope in entries:
+        body.extend(host_import_id.encode("ascii"))
+        body.append(0)
+        body.extend(scope.encode("ascii"))
+        body.append(0)
+    return f"sha256:{hashlib.sha256(body).hexdigest()}"
+
+
 def rewrite_reclog_frames(
     handle,
     seed_data_first_lba: int,
@@ -1398,6 +1530,36 @@ def rewrite_reclog_frames(
             int(frames[idx]["frame_len"]),
         )
         handle.seek((seed_data_first_lba + RECLOG_START_LBA) * SECTOR_SIZE + int(frames[idx]["offset"]))
+        handle.write(frame)
+        prev_hash = hashlib.sha256(frame).digest()
+
+
+def rewrite_reclog_payloads(
+    handle,
+    seed_data_first_lba: int,
+    frames: list[dict[str, object]],
+    replacements: dict[int, bytes],
+) -> None:
+    if not replacements:
+        raise ValueError("RECLOG rewrite requires at least one replacement payload")
+    first_index = min(replacements)
+    prev_hash = (
+        b"\0" * 32
+        if first_index == 0
+        else bytes.fromhex(str(frames[first_index - 1]["frame_sha256"]))
+    )
+    for idx in range(first_index, len(frames)):
+        payload = replacements.get(idx, frames[idx]["payload"])
+        frame = build_reclog_frame(
+            int(frames[idx]["seq"]),
+            prev_hash,
+            payload,
+            int(frames[idx]["frame_len"]),
+        )
+        handle.seek(
+            (seed_data_first_lba + RECLOG_START_LBA) * SECTOR_SIZE
+            + int(frames[idx]["offset"])
+        )
         handle.write(frame)
         prev_hash = hashlib.sha256(frame).digest()
 
@@ -1440,6 +1602,354 @@ def tamper_persist_record(image: Path) -> dict[str, object]:
         "new_value": new_value,
         "seq": frames[target_index]["seq"],
         "post_artifact_persist_record": records[0],
+    }
+
+
+def tamper_rollback_fixture_field(image: Path, mutation: str) -> dict[str, object]:
+    """Mutate one signed predecessor binding while preserving the outer RECLOG chain."""
+    assert_not_release_output(image)
+    selectors = {
+        "target_snapshot": ("raios.artifact_persist.v0", "grant_target_snapshot_sha256"),
+        "artstor_link": ("raios.artifact_persist.v0", "artstor_blob_frame_sha256"),
+        "promotion_signature": ("raios.install_authorization.v0", "install_signature_der"),
+    }
+    schema, field = selectors[mutation]
+    info = validate_existing_gpt_image(image)
+    seed_data_first_lba = seed_data_first_lba_from_info(info)
+    with image.open("r+b") as handle:
+        frames = parse_reclog_frames_for_inspection(read_reclog_region(handle, seed_data_first_lba))
+        target_index = None
+        target_record = None
+        for idx, frame in enumerate(frames):
+            record = payload_json(frame["payload"])
+            if record and record.get("schema") == schema:
+                target_index = idx
+                target_record = record
+                break
+        if target_index is None or target_record is None:
+            raise ValueError(f"no {schema} predecessor record found")
+        old_value = str(target_record.get(field, ""))
+        if field == "install_signature_der":
+            if len(old_value) < 2 or len(old_value) % 2 != 0:
+                raise ValueError("predecessor signature is not non-empty even-length hex")
+            new_value = f"{int(old_value[:2], 16) ^ 0x01:02x}{old_value[2:]}"
+        else:
+            new_value = flip_hash_byte(old_value)
+        new_payload = replace_json_hash(frames[target_index]["payload"], field, old_value, new_value)
+        rewrite_reclog_frames(handle, seed_data_first_lba, frames, target_index, new_payload)
+        handle.flush()
+        os.fsync(handle.fileno())
+    post = inspect_image(image)
+    scan = post.get("reclog_scan") or {}
+    if scan.get("status") != "valid" or int(scan.get("count", -1)) != len(frames):
+        raise ValueError("rollback predecessor mutation damaged outer RECLOG validity")
+    return {
+        "operation": f"tamper_rollback_fixture_{mutation}",
+        "image": str(image),
+        "schema": schema,
+        "field": field,
+        "old_value": old_value,
+        "new_value": new_value,
+        "seq": frames[target_index]["seq"],
+        "post_reclog_scan": scan,
+    }
+
+
+def reseal_rollback_fixture_snapshot(image: Path) -> dict[str, object]:
+    """Replace only the unsigned artifact snapshot with a different canonical snapshot."""
+    assert_not_release_output(image)
+    info = validate_existing_gpt_image(image)
+    seed_data_first_lba = seed_data_first_lba_from_info(info)
+    with image.open("r+b") as handle:
+        frames = parse_reclog_frames_for_inspection(read_reclog_region(handle, seed_data_first_lba))
+        target_index = None
+        target_record = None
+        for idx, frame in enumerate(frames):
+            record = payload_json(frame["payload"])
+            if record and record.get("schema") == "raios.artifact_persist.v0":
+                target_index = idx
+                target_record = record
+                break
+        if target_index is None or target_record is None:
+            raise ValueError("no rollback artifact_persist predecessor record found")
+        if target_record.get("grant_target_entries") != "env.log:host_call":
+            raise ValueError("rollback predecessor is not the pinned log-only snapshot")
+        signed_prefix = [
+            (frames[index]["payload"], frames[index]["frame_sha256"])
+            for index in range(target_index)
+        ]
+        old_snapshot = str(target_record.get("grant_target_snapshot_sha256", ""))
+        entries = (
+            ("env.log", "host_call"),
+            ("env.counter_get", "host_call"),
+        )
+        import_set_sha256 = hashlib.sha256(b"env.log\nenv.counter_get\n").hexdigest()
+        target_record["import_set_hash"] = f"sha256:{import_set_sha256}"
+        target_record["grant_target_entries"] = (
+            "env.log:host_call,env.counter_get:host_call"
+        )
+        target_record["grant_target_count"] = len(entries)
+        target_record["grant_target_snapshot_sha256"] = grant_target_snapshot_hash(
+            str(target_record.get("service_id", "")),
+            str(target_record.get("artifact_sha256", "")),
+            entries,
+        )
+        new_payload = (json.dumps(target_record, indent=2) + "\n").encode("utf-8")
+        rewrite_reclog_frames(handle, seed_data_first_lba, frames, target_index, new_payload)
+        handle.flush()
+        os.fsync(handle.fileno())
+    post = inspect_image(image)
+    scan = post.get("reclog_scan") or {}
+    if scan.get("status") != "valid" or int(scan.get("count", -1)) != len(frames):
+        raise ValueError("canonical snapshot reseal damaged outer RECLOG validity")
+    with image.open("rb") as handle:
+        after_frames = parse_reclog_frames_for_inspection(
+            read_reclog_region(handle, seed_data_first_lba)
+        )
+    for index, (payload, frame_sha256) in enumerate(signed_prefix):
+        if (
+            after_frames[index]["payload"] != payload
+            or after_frames[index]["frame_sha256"] != frame_sha256
+        ):
+            raise ValueError("canonical snapshot reseal changed signed authorization/promotion")
+    return {
+        "operation": "reseal_rollback_fixture_snapshot",
+        "image": str(image),
+        "semantic_boundary": "signed_snapshot_context_mismatch",
+        "old_snapshot": old_snapshot,
+        "new_snapshot": target_record["grant_target_snapshot_sha256"],
+        "new_entries": target_record["grant_target_entries"],
+        "new_count": target_record["grant_target_count"],
+        "signed_authorization_and_promotion_unchanged": True,
+        "unsigned_artifact_and_reclog_resealed": True,
+        "post_reclog_scan": scan,
+    }
+
+
+def duplicate_authenticated_install(image: Path) -> dict[str, object]:
+    """Append an authentic install triple with byte-identical payloads and new framing."""
+    assert_not_release_output(image)
+    info = validate_existing_gpt_image(image)
+    seed_data_first_lba = seed_data_first_lba_from_info(info)
+    with image.open("r+b") as handle:
+        frames = parse_reclog_frames_for_inspection(
+            read_reclog_region(handle, seed_data_first_lba)
+        )
+        records = [payload_json(frame["payload"]) for frame in frames]
+        triple_indices = None
+        for persist_index, persist in enumerate(records):
+            if not persist or persist.get("schema") != "raios.artifact_persist.v0":
+                continue
+            promotion_sha256 = str(
+                persist.get("promotion_transaction_sha256", "")
+            ).removeprefix("sha256:")
+            promotion_index = next(
+                (
+                    index
+                    for index, frame in enumerate(frames)
+                    if frame["frame_sha256"] == promotion_sha256
+                ),
+                None,
+            )
+            if promotion_index is None:
+                continue
+            promotion = records[promotion_index]
+            if (
+                not promotion
+                or promotion.get("schema") != "raios.promotion_transaction.v0"
+                or promotion.get("transaction_kind") != "promote"
+            ):
+                continue
+            authorization_sha256 = str(
+                promotion.get("install_authorization_frame_sha256", "")
+            ).removeprefix("sha256:")
+            authorization_index = next(
+                (
+                    index
+                    for index, frame in enumerate(frames)
+                    if frame["frame_sha256"] == authorization_sha256
+                ),
+                None,
+            )
+            if authorization_index is None:
+                continue
+            authorization = records[authorization_index]
+            if (
+                not authorization
+                or authorization.get("schema") != "raios.install_authorization.v0"
+                or str(persist.get("install_authorization_frame_sha256", "")).removeprefix(
+                    "sha256:"
+                )
+                != authorization_sha256
+                or not (authorization_index < promotion_index < persist_index)
+            ):
+                continue
+            triple_indices = (
+                authorization_index,
+                promotion_index,
+                persist_index,
+            )
+            break
+        if triple_indices is None:
+            raise ValueError("linked authorization+promotion+persist install triple not found")
+
+        original_frames = [frames[index] for index in triple_indices]
+        append_offset = sum(int(frame["frame_len"]) for frame in frames)
+        duplicate_len = sum(int(frame["frame_len"]) for frame in original_frames)
+        region_len = RECLOG_LBA_COUNT * SECTOR_SIZE
+        if append_offset + duplicate_len > region_len:
+            raise ValueError("RECLOG has no room for duplicated authenticated install")
+
+        prev_hash = bytes.fromhex(str(frames[-1]["frame_sha256"]))
+        duplicate_frames = []
+        for ordinal, original in enumerate(original_frames, start=1):
+            seq = len(frames) + ordinal
+            frame = build_reclog_frame(
+                seq,
+                prev_hash,
+                original["payload"],
+                int(original["frame_len"]),
+            )
+            handle.seek(
+                (seed_data_first_lba + RECLOG_START_LBA) * SECTOR_SIZE
+                + append_offset
+            )
+            handle.write(frame)
+            duplicate_frames.append(
+                {
+                    "seq": seq,
+                    "offset": append_offset,
+                    "frame_sha256": hashlib.sha256(frame).hexdigest(),
+                    "payload_sha256": hashlib.sha256(original["payload"]).hexdigest(),
+                }
+            )
+            append_offset += len(frame)
+            prev_hash = hashlib.sha256(frame).digest()
+        handle.flush()
+        os.fsync(handle.fileno())
+
+    post = inspect_image(image)
+    scan = post.get("reclog_scan") or {}
+    if scan.get("status") != "valid" or int(scan.get("count", -1)) != len(frames) + 3:
+        raise ValueError("duplicated authenticated install damaged outer RECLOG validity")
+    with image.open("rb") as handle:
+        after_frames = parse_reclog_frames_for_inspection(
+            read_reclog_region(handle, seed_data_first_lba)
+        )
+    for original_index, original in zip(triple_indices, original_frames):
+        if after_frames[original_index]["frame"] != original["frame"]:
+            raise ValueError("authenticated install duplication changed an original frame")
+    for ordinal, original in enumerate(original_frames):
+        duplicate = after_frames[len(frames) + ordinal]
+        if duplicate["payload"] != original["payload"]:
+            raise ValueError("authenticated install duplicate changed signed payload bytes")
+
+    return {
+        "operation": "duplicate_authenticated_install",
+        "image": str(image),
+        "semantic_boundary": "rollback_target_authenticated_order_duplicate",
+        "original_seq": [int(frame["seq"]) for frame in original_frames],
+        "duplicate_seq": [frame["seq"] for frame in duplicate_frames],
+        "original_frame_sha256": [str(frame["frame_sha256"]) for frame in original_frames],
+        "duplicate_frame_sha256": [frame["frame_sha256"] for frame in duplicate_frames],
+        "original_payload_sha256": [str(frame["payload_sha256"]) for frame in original_frames],
+        "duplicate_payload_sha256": [frame["payload_sha256"] for frame in duplicate_frames],
+        "signed_install_payloads_unchanged": True,
+        "duplicated_install_payloads_byte_identical": True,
+        "unsigned_reclog_framing_rechained": True,
+        "outer_reclog_chain_valid": True,
+        "post_reclog_scan": scan,
+    }
+
+
+def select_exact_rollback_recovery(frames: list[dict[str, object]]) -> tuple[int, int, int, dict[str, object], dict[str, object]]:
+    records = [payload_json(frame["payload"]) for frame in frames]
+    if any(record is None for record in records):
+        raise ValueError("rollback recovery contains malformed JSON")
+    try:
+        plan = ROLLBACK_SECURITY.derive_recovery_plan(
+            records, ROLLBACK_SECURITY.DETERMINISTIC_ROLLBACK_TARGET)
+    except ROLLBACK_SECURITY.SecurityError as exc:
+        code = getattr(exc, "code", "recovery_malformed")
+        raise ValueError(f"rollback recovery rejected: {code}") from exc
+    intent, commit = records[plan.intent_index], records[plan.commit_index]
+    return plan.intent_index, plan.revoke_index, plan.commit_index, intent, commit
+
+
+def forge_rollback_recovery(image: Path, mutation: str) -> dict[str, object]:
+    """Reseal one exact unsigned recovery record while preserving canonical record shape."""
+    assert_not_release_output(image)
+    info = validate_existing_gpt_image(image)
+    seed_data_first_lba = seed_data_first_lba_from_info(info)
+    with image.open("r+b") as handle:
+        frames = parse_reclog_frames_for_inspection(read_reclog_region(handle, seed_data_first_lba))
+        intent_index, revoke_index, commit_index, intent_record, commit_record = select_exact_rollback_recovery(frames)
+
+        signed_payloads = {
+            idx: frame["payload"]
+            for idx, frame in enumerate(frames[:intent_index])
+            if (payload_json(frame["payload"]) or {}).get("schema")
+            in {
+                "raios.install_authorization.v0",
+                "raios.promotion_transaction.v0",
+                "raios.artifact_persist.v0",
+            }
+        }
+        replacements: dict[int, bytes] = {}
+        semantic_boundary = ""
+        if mutation == "unchanged_projection":
+            source_projection = str(
+                (intent_record.get("value") or {}).get("source_projection_sha256", "")
+            )
+            if not source_projection.startswith("sha256:"):
+                raise ValueError("rollback intent lacks a source projection hash")
+            old_projection = str((commit_record.get("value") or {}).get("result_projection_sha256", ""))
+            replacements[commit_index] = replace_json_hash(frames[commit_index]["payload"], "result_projection_sha256", old_projection, source_projection)
+            commit_record["value"]["result_projection_sha256"] = source_projection
+            semantic_boundary = "rollback_transition_delta_count_mismatch"
+        elif mutation in {"pair_mismatch", "delta_count"}:
+            old_count = int(commit_record["value"]["delta_count"]); new_count = old_count + 1
+            old_token = f'"delta_count": {old_count}'.encode(); new_token = f'"delta_count": {new_count}'.encode()
+            if len(old_token) != len(new_token) or frames[commit_index]["payload"].count(old_token) != 1:
+                raise ValueError("rollback commit delta_count token is not one fixed-width canonical scalar")
+            replacements[commit_index] = frames[commit_index]["payload"].replace(old_token, new_token, 1)
+            commit_record["value"]["delta_count"] = new_count
+            semantic_boundary = "rollback_recovery_pair_mismatch"
+        else:
+            raise ValueError(f"unknown rollback recovery mutation: {mutation}")
+
+        rewrite_reclog_payloads(handle, seed_data_first_lba, frames, replacements)
+        handle.flush()
+        os.fsync(handle.fileno())
+
+    post = inspect_image(image)
+    scan = post.get("reclog_scan") or {}
+    if scan.get("status") != "valid" or int(scan.get("count", -1)) != len(frames):
+        raise ValueError("rollback recovery reseal damaged outer RECLOG validity")
+    with image.open("rb") as handle:
+        after_frames = parse_reclog_frames_for_inspection(
+            read_reclog_region(handle, seed_data_first_lba)
+        )
+    for idx, signed_payload in signed_payloads.items():
+        if after_frames[idx]["payload"] != signed_payload:
+            raise ValueError("rollback recovery reseal changed signed install payload bytes")
+    for idx, before in enumerate(frames):
+        if idx != commit_index and after_frames[idx]["payload"] != before["payload"]:
+            raise ValueError("rollback recovery mutation changed a non-commit record")
+    if payload_json(after_frames[commit_index]["payload"]) != commit_record:
+        raise ValueError("rollback recovery mutation changed more than its named commit scalar")
+    return {
+        "operation": f"forge_rollback_recovery_{mutation}",
+        "image": str(image),
+        "semantic_boundary": semantic_boundary,
+        "intent_seq": frames[intent_index]["seq"],
+        "revoke_seq": frames[revoke_index]["seq"],
+        "commit_seq": frames[commit_index]["seq"],
+        "signed_install_payloads_unchanged": True,
+        "revoke_record_byte_identical": after_frames[revoke_index]["payload"] == frames[revoke_index]["payload"],
+        "canonical_scalar_shape_preserved": True,
+        "unsigned_recovery_and_reclog_resealed": True,
+        "post_reclog_scan": scan,
     }
 
 
@@ -1553,6 +2063,7 @@ def build_image(
     seed_artstor_garbage: bool = False,
     buildfs_seed: BuildFsSeed | None = None,
     buildfs_seeds: tuple[BuildFsSeed, ...] | None = None,
+    dev_rollback_seed: DevRollbackSeed | None = None,
 ) -> None:
     assert_not_release_output(output)
     if ARTSTOR_LBA_COUNT <= 0:
@@ -1564,6 +2075,13 @@ def build_image(
         if buildfs_seeds is not None
         else ((buildfs_seed,) if buildfs_seed is not None else ())
     )
+
+    if dev_rollback_seed is not None and (
+        reclog_fixture_spec not in {None, "", "empty"}
+        or seed_artstor_garbage
+        or effective_buildfs_seeds
+    ):
+        raise ValueError("dev rollback fixture requires otherwise-empty RECLOG and ARTSTOR")
 
     reclog_fixture = parse_reclog_fixture(reclog_fixture_spec)
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -1585,6 +2103,8 @@ def build_image(
         write_at(handle, SEED_DATA_START_LBA, sb)
         write_at(handle, SEED_DATA_START_LBA + 1, sb)
         seed_reclog_fixture(handle, reclog_fixture)
+        if dev_rollback_seed is not None:
+            seed_dev_rollback_fixture(handle, dev_rollback_seed)
         if seed_artstor_garbage:
             seed_artstor_garbage_blob(handle)
         if effective_buildfs_seeds:
@@ -2615,6 +3135,13 @@ def main() -> int:
     parser.add_argument("--corrupt-artstor-blob", type=Path, help="mutate the first ARTSTOR blob payload in-place")
     parser.add_argument("--tamper-persist-record", type=Path, help="mutate the first artifact_persist RECLOG record in-place")
     parser.add_argument("--tamper-wasm-grant-event", type=Path, help="break a revoke parent hash while preserving a valid RECLOG chain")
+    parser.add_argument("--tamper-rollback-target-snapshot", type=Path, help="raw-bitflip the unsigned predecessor snapshot hash while preserving RECLOG framing")
+    parser.add_argument("--reseal-rollback-target-snapshot", type=Path, help="replace the unsigned predecessor snapshot with a different canonical snapshot and fully rechain RECLOG")
+    parser.add_argument("--tamper-rollback-target-artstor-link", type=Path, help="mutate the predecessor ARTSTOR link while preserving RECLOG framing")
+    parser.add_argument("--tamper-rollback-target-signature", type=Path, help="mutate the predecessor install signature while preserving RECLOG framing")
+    parser.add_argument("--duplicate-authenticated-install", type=Path, help="duplicate one authentic authorization+promotion+persist triple and rechain only RECLOG framing")
+    parser.add_argument("--forge-rollback-unchanged-projection", type=Path, help="remove the rollback revoke and reseal the unsigned commit to claim the unchanged source projection")
+    parser.add_argument("--mismatch-rollback-intent-commit", type=Path, help="reseal a commit with the same transaction id but mismatched intent semantics")
     parser.add_argument("--corrupt-memory-frame", type=Path, help="flip one byte in the last RECLOG frame payload in-place")
     parser.add_argument("--stage-slot", choices=("A", "B"), help="stage --payload-dir into this ESP and set it pending")
     parser.add_argument("--payload-dir", type=Path, help="directory to stage into the selected ESP")
@@ -2635,6 +3162,18 @@ def main() -> int:
         help="seed a bare RAIOSAR0 blob in ARTSTOR without a chained artifact_persist RECLOG record",
     )
     parser.add_argument(
+        "--seed-dev-rollback-fixture",
+        type=Path,
+        metavar="WASM",
+        help="seed the fixed signed log-only DEV rollback predecessor generated by dev-rollback-fixture",
+    )
+    parser.add_argument(
+        "--dev-rollback-fixture-tool",
+        type=Path,
+        metavar="EXE",
+        help="exact dev-rollback-fixture executable required with --seed-dev-rollback-fixture",
+    )
+    parser.add_argument(
         "--seed-buildfs",
         type=Path,
         action="append",
@@ -2652,6 +3191,34 @@ def main() -> int:
     )
     parser.add_argument("output", nargs="?", type=Path)
     args = parser.parse_args()
+    mutation_targets = (
+        args.corrupt_artstor_blob, args.tamper_persist_record,
+        args.tamper_wasm_grant_event, args.tamper_rollback_target_snapshot,
+        args.reseal_rollback_target_snapshot, args.tamper_rollback_target_artstor_link,
+        args.tamper_rollback_target_signature, args.duplicate_authenticated_install,
+        args.forge_rollback_unchanged_projection, args.mismatch_rollback_intent_commit,
+        args.corrupt_memory_frame,
+    )
+    mutation_count = sum(target is not None for target in mutation_targets)
+    seed_requested = bool(
+        args.seed_dev_rollback_fixture or args.seed_buildfs
+        or args.seed_artstor_garbage_blob
+        or args.seed_reclog_fixture not in {None, "", "empty"}
+    )
+    if mutation_count > 1:
+        parser.error("choose only one tamper subcommand")
+    if mutation_count and (
+        seed_requested or args.seed_bootctl or args.image or args.stage_slot
+        or args.payload_dir or args.set_pending or args.output
+        or args.inspect_json or args.resolve_buildfs or args.self_check
+        or args.self_check_buildfs
+    ):
+        parser.error("tamper subcommands cannot be combined with seed, update, inspect, or create operations")
+    if seed_requested and (
+        args.inspect_json or args.resolve_buildfs or args.self_check_buildfs
+        or args.image or args.stage_slot or args.payload_dir or args.set_pending
+    ):
+        parser.error("seed operations are valid only while creating a new positional output image")
     try:
         buildfs_seed_pairs = pair_buildfs_seed_arguments(
             args.seed_buildfs,
@@ -2665,6 +3232,18 @@ def main() -> int:
             parser.error("--resolve-buildfs and --manifest are required together")
         if args.seed_buildfs and args.seed_artstor_garbage_blob:
             parser.error("--seed-buildfs cannot be combined with --seed-artstor-garbage-blob")
+        if (args.seed_dev_rollback_fixture is None) != (args.dev_rollback_fixture_tool is None):
+            parser.error(
+                "--seed-dev-rollback-fixture and --dev-rollback-fixture-tool are required together"
+            )
+        if args.seed_dev_rollback_fixture and (
+            args.seed_buildfs
+            or args.seed_artstor_garbage_blob
+            or args.seed_reclog_fixture not in {None, "", "empty"}
+        ):
+            parser.error(
+                "--seed-dev-rollback-fixture requires otherwise-empty RECLOG and ARTSTOR"
+            )
         if args.seed_buildfs and (
             args.inspect_json
             or args.assert_not_release
@@ -2672,6 +3251,8 @@ def main() -> int:
             or args.corrupt_artstor_blob
             or args.tamper_persist_record
             or args.tamper_wasm_grant_event
+            or args.forge_rollback_unchanged_projection
+            or args.mismatch_rollback_intent_commit
             or args.corrupt_memory_frame
             or args.stage_slot
             or args.payload_dir
@@ -2690,6 +3271,13 @@ def main() -> int:
                 or args.corrupt_artstor_blob
                 or args.tamper_persist_record
                 or args.tamper_wasm_grant_event
+                or args.tamper_rollback_target_snapshot
+                or args.reseal_rollback_target_snapshot
+                or args.tamper_rollback_target_artstor_link
+                or args.tamper_rollback_target_signature
+                or args.duplicate_authenticated_install
+                or args.forge_rollback_unchanged_projection
+                or args.mismatch_rollback_intent_commit
                 or args.corrupt_memory_frame
                 or args.stage_slot
                 or args.payload_dir
@@ -2711,6 +3299,13 @@ def main() -> int:
                 or args.corrupt_artstor_blob
                 or args.tamper_persist_record
                 or args.tamper_wasm_grant_event
+                or args.tamper_rollback_target_snapshot
+                or args.reseal_rollback_target_snapshot
+                or args.tamper_rollback_target_artstor_link
+                or args.tamper_rollback_target_signature
+                or args.duplicate_authenticated_install
+                or args.forge_rollback_unchanged_projection
+                or args.mismatch_rollback_intent_commit
                 or args.corrupt_memory_frame
                 or args.stage_slot
                 or args.payload_dir
@@ -2730,6 +3325,9 @@ def main() -> int:
                 args.image
                 or args.corrupt_artstor_blob
                 or args.tamper_persist_record
+                or args.duplicate_authenticated_install
+                or args.forge_rollback_unchanged_projection
+                or args.mismatch_rollback_intent_commit
                 or args.corrupt_memory_frame
                 or args.stage_slot
                 or args.payload_dir
@@ -2739,11 +3337,26 @@ def main() -> int:
                 parser.error("--inspect-json cannot be combined with offline mutation flags")
             print(json.dumps(inspect_image(args.inspect_json), indent=2))
             return 0
-        if args.corrupt_artstor_blob or args.tamper_persist_record or args.tamper_wasm_grant_event or args.corrupt_memory_frame:
+        if (args.corrupt_artstor_blob or args.tamper_persist_record or
+                args.tamper_wasm_grant_event or args.corrupt_memory_frame or
+                args.tamper_rollback_target_snapshot or
+                args.reseal_rollback_target_snapshot or
+                args.tamper_rollback_target_artstor_link or
+                args.tamper_rollback_target_signature or
+                args.duplicate_authenticated_install or
+                args.forge_rollback_unchanged_projection or
+                args.mismatch_rollback_intent_commit):
             mutation_targets = [
                 args.corrupt_artstor_blob,
                 args.tamper_persist_record,
                 args.tamper_wasm_grant_event,
+                args.tamper_rollback_target_snapshot,
+                args.reseal_rollback_target_snapshot,
+                args.tamper_rollback_target_artstor_link,
+                args.tamper_rollback_target_signature,
+                args.duplicate_authenticated_install,
+                args.forge_rollback_unchanged_projection,
+                args.mismatch_rollback_intent_commit,
                 args.corrupt_memory_frame,
             ]
             if sum(target is not None for target in mutation_targets) != 1:
@@ -2756,6 +3369,26 @@ def main() -> int:
                 result = tamper_persist_record(args.tamper_persist_record)
             elif args.tamper_wasm_grant_event:
                 result = tamper_wasm_grant_event(args.tamper_wasm_grant_event)
+            elif args.tamper_rollback_target_snapshot:
+                result = tamper_rollback_fixture_field(args.tamper_rollback_target_snapshot, "target_snapshot")
+            elif args.reseal_rollback_target_snapshot:
+                result = reseal_rollback_fixture_snapshot(args.reseal_rollback_target_snapshot)
+            elif args.tamper_rollback_target_artstor_link:
+                result = tamper_rollback_fixture_field(args.tamper_rollback_target_artstor_link, "artstor_link")
+            elif args.tamper_rollback_target_signature:
+                result = tamper_rollback_fixture_field(args.tamper_rollback_target_signature, "promotion_signature")
+            elif args.duplicate_authenticated_install:
+                result = duplicate_authenticated_install(args.duplicate_authenticated_install)
+            elif args.forge_rollback_unchanged_projection:
+                result = forge_rollback_recovery(
+                    args.forge_rollback_unchanged_projection,
+                    "unchanged_projection",
+                )
+            elif args.mismatch_rollback_intent_commit:
+                result = forge_rollback_recovery(
+                    args.mismatch_rollback_intent_commit,
+                    "pair_mismatch",
+                )
             else:
                 result = corrupt_memory_frame(args.corrupt_memory_frame)
             print(json.dumps(result, indent=2))
@@ -2774,6 +3407,14 @@ def main() -> int:
             return 0
         def build_validate_print(output: Path) -> int:
             reclog_fixture = parse_reclog_fixture(args.seed_reclog_fixture)
+            dev_rollback_seed = (
+                prepare_dev_rollback_seed(
+                    args.dev_rollback_fixture_tool,
+                    args.seed_dev_rollback_fixture,
+                )
+                if args.seed_dev_rollback_fixture
+                else None
+            )
             buildfs_seeds = (
                 prepare_buildfs_seeds(buildfs_seed_pairs)
                 if buildfs_seed_pairs
@@ -2785,15 +3426,19 @@ def main() -> int:
                 args.seed_bootctl,
                 args.seed_artstor_garbage_blob,
                 buildfs_seeds=buildfs_seeds or None,
+                dev_rollback_seed=dev_rollback_seed,
             )
             info = inspect_image(output)
             validate_or_raise(info)
-            validate_reclog_fixture_or_raise(info, reclog_fixture)
-            validate_boot_control_fixture_or_raise(info, args.seed_bootctl)
-            if not buildfs_seeds:
-                validate_artstor_garbage_fixture_or_raise(info, args.seed_artstor_garbage_blob)
+            if dev_rollback_seed is None:
+                validate_reclog_fixture_or_raise(info, reclog_fixture)
             else:
+                validate_dev_rollback_seed_image(output, dev_rollback_seed)
+            validate_boot_control_fixture_or_raise(info, args.seed_bootctl)
+            if buildfs_seeds:
                 validate_buildfs_seed_trees_image(output, buildfs_seeds)
+            elif dev_rollback_seed is None:
+                validate_artstor_garbage_fixture_or_raise(info, args.seed_artstor_garbage_blob)
             print_summary(info)
             print(
                 f"reclog fixture: frames_seeded={reclog_fixture.frame_count} "
@@ -2808,6 +3453,12 @@ def main() -> int:
                 "artstor garbage fixture: "
                 f"seeded={str(args.seed_artstor_garbage_blob).lower()} validation=passed"
             )
+            if dev_rollback_seed is not None:
+                print(
+                    "dev rollback fixture: "
+                    f"artifact={dev_rollback_seed.metadata['artifact_sha256']} "
+                    "records=4 target=env.log signatures=2 validation=passed"
+                )
             if len(buildfs_seeds) == 1:
                 buildfs_seed = buildfs_seeds[0]
                 print(

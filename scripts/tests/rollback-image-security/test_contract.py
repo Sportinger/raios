@@ -143,6 +143,86 @@ def recovery():
     return binding, records
 
 
+VERSIONS = ((1, bytes.fromhex("33ea9dc8f8ecd039236673fafdffcf63e8691a1d352cffee4ddf47531cb5756c"), 121, (("env.log", "host_call"),)),
+            (2, bytes.fromhex("f81f9442de3729f58f9d5c43b186a4223e3f0ed0bdde20e94722da8d5733abd2"), 4205, (("env.log", "host_call"), ("env.counter_get", "host_call"))))
+
+
+def signed_authorization(version, byte_len=None):
+    """Independent signed Rust-v2 source authorization oracle."""
+    generation, artifact, exact_len, entries = version
+    byte_len = exact_len if byte_len is None else byte_len
+    service = "svc.dev.granted_candidate"; trust = "dev_key_not_owner_sealed"; h = {name: label(f"auth{generation}-" + name) for name in ("activation", "grant", "attestation", "invocation", "receipt", "authority", "approval")}
+    text = lambda value: len(value.encode()).to_bytes(2, "little") + value.encode(); opt = lambda value: bytes((value is not None,)) + (value or bytes(32))
+    snapshot = hashlib.sha256(b"raios.grant_target_snapshot.v1\0" + service.encode() + b"\0" + artifact + len(entries).to_bytes(8, "little") + b"".join(host.encode() + b"\0" + scope.encode() + b"\0" for host, scope in entries)).digest()
+    envelope_body = (2).to_bytes(2, "little") + text(service) + artifact + byte_len.to_bytes(8, "little") + h["activation"] + h["grant"] + h["attestation"] + text("raios.grant_target_snapshot.v1") + len(entries).to_bytes(8, "little") + snapshot + h["invocation"] + h["receipt"] + artifact * 3 + generation.to_bytes(8, "little") + b"\1" + text(trust)
+    envelope = hashlib.sha256(b"raios.granted_candidate_install_envelope.v2" + envelope_body).digest()
+    semantics = b"\1\1" + text(service) + generation.to_bytes(8, "little") + generation.to_bytes(8, "little") + opt(None) + opt(envelope) + opt(None) + h["authority"] + opt(h["approval"]) + opt(bytes.fromhex(KEY[7:]))
+    message = hashlib.sha256(b"raios.project_install_action_signature.v1" + semantics).digest(); signature = sign(message)
+    action = hashlib.sha256(b"raios.project_install_action.v1" + semantics + len(signature).to_bytes(2, "little") + signature).digest()
+    return {"schema": "raios.install_authorization.v0", "id": f"install_authorization.origin_boot.svc.dev.granted_candidate.{generation}.v0", "scope": "origin_boot", "classification": "local_only", "service_id": service, "record_kind": "install_authorization", "install_envelope_version": 2,
+        "activation_approval_sha256": q(h["activation"]), "computed_grant_sha256": q(h["grant"]), "attestation_reference_sha256": q(h["attestation"]), "grant_target_schema": "raios.grant_target_snapshot.v1", "grant_target_count": len(entries), "grant_target_snapshot_sha256": q(snapshot), "w7_invocation_sha256": q(h["invocation"]), "w7_receipt_sha256": q(h["receipt"]),
+        "receiver_content_sha256": q(artifact), "receiver_candidate_sha256": q(artifact), "catalog_candidate_sha256": q(artifact), "install_envelope_sha256": q(envelope), "install_action_sha256": q(action), "install_action_signature_message_sha256": q(message), "authority_evidence_sha256": q(h["authority"]), "physical_approval_sha256": q(h["approval"]), "install_authority_key_sha256": KEY,
+        "install_signature_der": signature.hex(), "install_signature_len": len(signature), "install_candidate_sha256": q(artifact), "install_candidate_byte_len": byte_len, "install_generation": generation, "install_log_sequence": generation, "trust_tier": trust}
+
+
+def folded_recovery(generations=(2, 2)):
+    """Independent Rust-layout oracle; never calls the helper derivation API."""
+    service, domain = "svc.dev.granted_candidate", 1; binding = hashlib.sha256(service.encode()).digest(); qh = lambda raw: "sha256:" + raw.hex()
+    outer = lambda rid, kind, predicate, value, authority, sequence, method, source, tags: {
+        "schema": "raios.memory_record.v0", "id": rid, "kind": kind, "entity": service,
+        "predicate": predicate, "value": value, "classification": "local_only",
+        "authority": authority, "boot_id": "origin_boot", "sequence": sequence,
+        "source": {"method": method, "record_id": source}, "evidence": [], "tags": tags,
+        "supersedes": [], "created_at": {"clock": "boot_ticks", "ticks": 0}}
+    grants, slots = [], []
+    for epoch, (surface, generation) in enumerate(zip(("env.log", "env.counter_get"), generations), 1):
+        rid = f"cap.grant.oracle.{generation}.{surface}.{epoch}"
+        value = {"event_schema": "raios.wasm_import_grant_event.v1", "service_id": service,
+                 "domain_instance": domain, "binding_sha256": qh(binding),
+                 "host_import_id": surface, "scope": "host_call", "generation": generation,
+                 "epoch": epoch, "parent_grant_id": "", "parent_grant_sha256": qh(bytes(32))}
+        record = outer(rid, "capability_grant", "wasm_import.granted.v1", value,
+                       "kernel_wasm_import_grant_fold.v1", epoch, "wasm_import.grant_event", rid,
+                       ["wasm_import", "capability"])
+        grants.append(record); slots.append((surface, generation, epoch, rid, hashlib.sha256(canonical(record)).digest()))
+    def projection(revoke=None):
+        body = bytearray()
+        for surface, generation, epoch, rid, record_hash in sorted(slots, key=lambda item: (service, domain, binding, item[0], "host_call", item[1], item[3])):
+            body.extend(service.encode() + b"\0" + domain.to_bytes(8, "little") + binding)
+            body.extend(surface.encode() + b"\0host_call\0" + generation.to_bytes(8, "little"))
+            body.extend(rid.encode() + b"\0" + record_hash + epoch.to_bytes(8, "little"))
+            if revoke and surface == "env.counter_get": body.extend(revoke.encode())
+            body.extend(b"\0" + bytes((bool(revoke and surface == "env.counter_get"),)))
+        return hashlib.sha256(body).digest()
+    removed = slots[1]; delta = hashlib.sha256(removed[3].encode() + b"\0" + removed[4] + removed[2].to_bytes(8, "little")
+              + binding + b"env.counter_get\0host_call\0" + removed[1].to_bytes(8, "little")).digest()
+    artifact = bytes.fromhex(SEC.DETERMINISTIC_ROLLBACK_TARGET.artifact_sha256[7:])
+    target = hashlib.sha256(b"raios.grant_target_snapshot.v1\0" + service.encode() + b"\0" + artifact
+             + (1).to_bytes(8, "little") + b"env.log\0host_call\0").digest()
+    source = projection(); tx = hashlib.sha256(source + target + delta).hexdigest(); revoke_id = f"rollback.revoke.v1.{len(tx)}.{tx.encode().hex()}.{len(removed[3])}.{removed[3].encode().hex()}"; result = projection(revoke_id)
+    common = {"transaction_id": tx, "service_id": service, "domain_instance": domain,
+              "source_projection_sha256": qh(source), "target_snapshot_sha256": qh(target),
+              "delta_sha256": qh(delta), "delta_count": 1}
+    marker = lambda phase, result_hash: outer(f"rollback.{phase}.{tx}", "rollback_tx_ref",
+        f"wasm_import.rollback_{phase}.v1", {**common, "result_projection_sha256": result_hash},
+        "kernel_wasm_rollback_transaction.v1", 1 if phase == "intent" else 2,
+        "service.rollback_apply", tx, ["wasm_import", "rollback_transaction"])
+    revoke_value = {"event_schema": "raios.wasm_import_grant_event.v1", "service_id": service,
+        "domain_instance": domain, "binding_sha256": qh(binding), "host_import_id": "env.counter_get",
+        "scope": "host_call", "generation": removed[1], "epoch": 3, "parent_grant_id": removed[3],
+        "parent_grant_sha256": qh(removed[4])}
+    revoke = outer(revoke_id, "capability_denial", "wasm_import.revoked.v1", revoke_value,
+                   "kernel_wasm_import_grant_fold.v1", 3, "wasm_import.grant_event", revoke_id,
+                   ["wasm_import", "capability"])
+    auth1, auth2 = map(signed_authorization, VERSIONS)
+    prefix = [auth1, auth2] + grants if generations == (2, 2) else [auth1, grants[0], auth2, grants[1]]
+    records = prefix + [marker("intent", None), {"id": "audit", "predicate": "audit.v1", "value": {}},
+                        revoke, {"id": "audit.2", "predicate": "audit.v1", "value": {}},
+                        marker("commit", qh(result))]
+    return records, {"source": qh(source), "delta": qh(delta), "result": qh(result), "tx": tx,
+                     "revoke_id": revoke_id}
+
+
 class ContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -243,6 +323,64 @@ class ContractTests(unittest.TestCase):
         records = copy.deepcopy(original); records[2]["extra"] = True; cases.append(("recovery_member", records))
         for code, records in cases:
             with self.subTest(code=code): self.recovery_rejects(code, binding, records)
+
+    def test_typed_grant_fold_derives_both_generation_histories(self):
+        observed = []
+        for generations in ((2, 2), (1, 2)):
+            with self.subTest(generations=generations):
+                records, oracle = folded_recovery(generations); before = canonical(records); plan = SEC.derive_recovery_plan(records, SEC.DETERMINISTIC_ROLLBACK_TARGET)
+                self.assertEqual((plan.intent_index, plan.revoke_index, plan.commit_index), (4, 6, 8))
+                self.assertEqual((plan.transaction_id, plan.delta_sha256),
+                                 (oracle["tx"], oracle["delta"]))
+                self.assertEqual(records[4]["value"]["source_projection_sha256"], oracle["source"])
+                self.assertEqual(records[8]["value"]["result_projection_sha256"], oracle["result"])
+                self.assertEqual(records[6]["id"], oracle["revoke_id"])
+                self.assertNotEqual(oracle["source"], oracle["result"])
+                self.assertEqual(before, canonical(records)); observed.append(oracle)
+        self.assertNotEqual(observed[0]["source"], observed[1]["source"])
+
+    def test_signed_source_anchor_and_arbitrary_generations_fail_closed(self):
+        cases = [folded_recovery(generations)[0] for generations in ((99, 100), (1, 99), (2, 3), (2, 1))]
+        def reordered(generations, order):
+            records, _ = folded_recovery(generations); prefix = records[:4]; records[:4] = [prefix[i] for i in order]; return records
+        cases += [reordered(generations, order) for generations, order in (((2, 2), (0, 2, 1, 3)), ((2, 2), (0, 2, 3, 1)),
+            ((1, 2), (1, 0, 2, 3)), ((1, 2), (0, 2, 1, 3)), ((2, 2), (1, 0, 2, 3)), ((2, 2), (0, 1, 1, 2, 3)), ((2, 2), (0, 1, 3, 2)), ((2, 2), (1, 0, 3, 2)))]
+        for index, version in enumerate(VERSIONS):
+            records, _ = folded_recovery(); records[index] = signed_authorization(version, version[2] + 1); cases.append(records)
+        records, _ = folded_recovery((1, 2)); del records[0]; cases.append(records)
+        for value in (0, -1, True):
+            records, _ = folded_recovery(); records[3]["value"]["generation"] = value; cases.append(records)
+        for field, value in (("service_id", "svc.foreign"), ("install_candidate_sha256", q(b"\x55" * 32)),
+                             ("install_envelope_sha256", q(bytes(32))), ("install_action_signature_message_sha256", q(bytes(32))),
+                             ("install_action_sha256", q(bytes(32))), ("install_authority_key_sha256", q(bytes(32))),
+                             ("install_signature_len", 0), ("install_signature_der", "00")):
+            records, _ = folded_recovery(); records[0][field] = value; cases.append(records)
+        original, _ = folded_recovery(); records = copy.deepcopy(original); records.insert(1, copy.deepcopy(records[0])); cases.append(records)
+        for records in cases:
+            with self.subTest(case=len(cases)):
+                before = canonical(records)
+                with self.assertRaises(SEC.SecurityError): SEC.derive_recovery_plan(records, SEC.DETERMINISTIC_ROLLBACK_TARGET)
+                self.assertEqual(before, canonical(records))
+
+    def test_typed_grant_fold_and_hostile_markers_fail_closed(self):
+        original, _oracle = folded_recovery((1, 2)); cases = []
+        records = copy.deepcopy(original)
+        for index in (1, 3, 6): records[index]["entity"] = "svc.hostile"; records[index]["value"]["service_id"] = "svc.hostile"
+        for index in (4, 8): records[index]["entity"] = "svc.hostile"; records[index]["value"]["service_id"] = "svc.hostile"
+        cases.append(records)
+        for index, field, value in ((1, "authority", "hostile"), (1, "sequence", 9),
+                                    (1, "extra", True), (3, "predicate", "wasm_import.unknown.v1")):
+            records = copy.deepcopy(original); records[index][field] = value; cases.append(records)
+        records = copy.deepcopy(original); records[3]["value"]["epoch"] = 1; records[3]["sequence"] = 1; cases.append(records)
+        records = copy.deepcopy(original); records[3] = copy.deepcopy(records[1]); cases.append(records)
+        records = copy.deepcopy(original); records[8]["value"]["transaction_id"] = "cd" * 32; cases.append(records)
+        records = copy.deepcopy(original); records[8]["value"]["result_projection_sha256"] = q(bytes(32)); cases.append(records)
+        records = copy.deepcopy(original); records.append(copy.deepcopy(records[1])); cases.append(records)
+        for records in cases:
+            with self.subTest(case=len(records)):
+                before = canonical(records)
+                with self.assertRaises(SEC.SecurityError): SEC.derive_recovery_plan(records, SEC.DETERMINISTIC_ROLLBACK_TARGET)
+                self.assertEqual(before, canonical(records))
 
 
 def parse_der(signature):
